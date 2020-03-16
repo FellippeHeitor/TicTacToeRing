@@ -172,15 +172,16 @@ DO
             'check matches
             DIM r(1 TO 3) AS INTEGER, previousScore AS _UNSIGNED LONG
             DIM s$, found1 AS INTEGER, found2 AS INTEGER, scored AS _BYTE
+            DIM animating$
             previousScore = score
             IF placed THEN
-                'look for 3 same-color rings on peg(i)
+                'look for 3 same-color rings on peg(i) --> ((o))
                 FOR j = 1 TO 3
                     r(j) = CVI(MID$(peg(i).set, j * 2 - 1, 2))
                 NEXT
                 IF r(1) = r(2) AND r(2) = r(3) THEN
                     score = score + 3 * multiplier
-                    peg(i).set = emptySet$
+                    del(i).set = emptySet$
                 END IF
 
                 'look for line matches |, -, /, \
@@ -253,7 +254,7 @@ DO
             END IF
             IF score > highscore THEN highscore = score
         ELSE
-            'highlight sets in the shelf
+            'highlight the hovered set in the shelf
             DIM highLit AS INTEGER
             IF highLit > 0 THEN l = l - 1 ELSE l = 8
             IF l < 0 THEN l = 0
@@ -294,6 +295,24 @@ DO
             END IF
         NEXT
     NEXT
+
+    'play match animation
+    IF LEN(animating$) THEN
+        i = 1
+        DO
+            j = CVI(MID$(animating$, i * 2 - 1, 2))
+            SELECT CASE j
+                CASE 1
+                    PRINT "animating across #"
+                CASE 2
+                    PRINT "animating down #"
+                CASE 3
+                    PRINT "animating diagonal #"
+            END SELECT
+            i = i + 1
+            IF i * 2 - 1 > LEN(animating$) THEN EXIT DO
+        LOOP
+    END IF
 
     'update display
     _DISPLAY
