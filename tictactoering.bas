@@ -7,10 +7,11 @@ DIM SHARED charSet(255, 1 TO 16, 1 TO 8) AS _BYTE
 
 initializeCharSetPrintLarge
 
-TYPE rings
+TYPE object
     x AS INTEGER
     y AS INTEGER
     set AS STRING * 6
+    start AS SINGLE
 END TYPE
 
 DIM canvas AS LONG
@@ -20,8 +21,8 @@ SCREEN canvas
 _TITLE "Tic Tac Toe Ring"
 _PRINTMODE _KEEPBACKGROUND
 
-DIM peg(1 TO 12) AS rings
-DIM del(1 TO 9) AS rings
+DIM peg(1 TO 12) AS object
+DIM del(1 TO 9) AS object
 
 'set pegs positions
 DIM spacing AS INTEGER, l AS INTEGER
@@ -70,10 +71,12 @@ emptySet$ = STRING$(6, 0)
 'game
 DIM score AS _UNSIGNED LONG, highscore AS _UNSIGNED LONG
 DIM level AS _UNSIGNED LONG, maxColors AS INTEGER
+DIM animation(1 TO 5) AS object
+
 DIM multiplier AS INTEGER
 multiplier = 1
 
-'RANDOMIZE TIMER
+RANDOMIZE TIMER
 _DEST _DISPLAY
 
 DO
@@ -172,7 +175,6 @@ DO
             'check matches
             DIM r(1 TO 3) AS INTEGER, previousScore AS _UNSIGNED LONG
             DIM s$, found1 AS INTEGER, found2 AS INTEGER, scored AS _BYTE
-            DIM animating$
             previousScore = score
             IF placed THEN
                 'look for 3 same-color rings on peg(i) --> ((o))
@@ -181,6 +183,9 @@ DO
                 NEXT
                 IF r(1) = r(2) AND r(2) = r(3) THEN
                     score = score + 3 * multiplier
+                    animation(5).start = TIMER
+                    animation(5).x = peg(i).x
+                    animation(5).y = peg(i).y
                     del(i).set = emptySet$
                 END IF
 
@@ -234,6 +239,9 @@ DO
                                     LOOP
                                 NEXT
                                 scored = true
+                                animation(m).start = TIMER
+                                animation(m).x = peg(r(i)).x
+                                animation(m).y = peg(r(i)).y
                             END IF
 
                             IF scored THEN MID$(del(r(i)).set, j * 2 - 1, 2) = MKI$(0)
@@ -297,22 +305,26 @@ DO
     NEXT
 
     'play match animation
-    IF LEN(animating$) THEN
-        i = 1
-        DO
-            j = CVI(MID$(animating$, i * 2 - 1, 2))
-            SELECT CASE j
-                CASE 1
-                    PRINT "animating across #"
-                CASE 2
-                    PRINT "animating down #"
-                CASE 3
-                    PRINT "animating diagonal #"
+    CONST animDuration = .3
+    FOR i = 1 TO 5
+        IF TIMER - animation(i).start <= animDuration THEN
+            DIM animSize AS SINGLE
+            animSize = map(TIMER - animation(i).start, 0, animDuration, 50, 0)
+            SELECT CASE i
+                CASE 1 'across
+                    FOR j = 1 TO animSize
+                        LINE (0, animation(i).y - j / 2)-STEP(_WIDTH, j), _RGB32(255, 20), BF
+                    NEXT
+                CASE 2 'down
+                    FOR j = 1 TO animSize
+                        LINE (animation(i).x - j / 2, 0)-STEP(j, _HEIGHT), _RGB32(255, 20), BF
+                    NEXT
+                CASE 3 'diagonal \
+                CASE 4 'diagonal /
+                CASE 5 'single peg ((o))
             END SELECT
-            i = i + 1
-            IF i * 2 - 1 > LEN(animating$) THEN EXIT DO
-        LOOP
-    END IF
+        END IF
+    NEXT
 
     'update display
     _DISPLAY
@@ -353,7 +365,7 @@ FUNCTION dist! (x1!, y1!, x2!, y2!)
     dist! = _HYPOT((x2! - x1!), (y2! - y1!))
 END FUNCTION
 
-FUNCTION distB! (v1 AS rings, v2 AS rings)
+FUNCTION distB! (v1 AS object, v2 AS object)
     distB! = dist!(v1.x, v1.y, v2.x, v2.y)
 END FUNCTION
 
@@ -492,4 +504,3 @@ SUB initializeCharSetPrintLarge
     DATA 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,-1,-1,-1,-1,0,0,0,0,-1,-1,0,0,0,0,0,0,-1,-1,0,0,0,0,0,0,-1,-1,0,0,0,0,0,0,-1,-1,0,0,0,0,0,0,-1,-1,0,0,-1,-1,-1,0,-1,-1,0,0,0,-1,-1,0,-1,-1,0,0,0,-1,-1,0,-1,-1,0,0,0,0,-1,-1,-1,-1,0,0,0,0,0,-1,-1,-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,-1,-1,0,-1,-1,0,0,0,0,-1,-1,0,-1,-1,0,0,0,-1,-1,0,-1,-1,0,0,0,-1,-1,0,-1,-1,0,0,0,-1,-1,0,-1,-1,0,0,0,-1,-1,0,-1,-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,-1,-1,-1,0,0,0,0,-1,-1,0,-1,-1,0,0,0,0,0,-1,-1,0,0,0,0,0,-1,-1,0,0,0,0,0,-1,-1,0,0,-1,0,0,0,-1,-1,-1,-1,-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
     DATA 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,-1,-1,-1,-1,-1,0,0,0,-1,-1,-1,-1,-1,0,0,0,-1,-1,-1,-1,-1,0,0,0,-1,-1,-1,-1,-1,0,0,0,-1,-1,-1,-1,-1,0,0,0,-1,-1,-1,-1,-1,0,0,0,-1,-1,-1,-1,-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 END SUB
-
