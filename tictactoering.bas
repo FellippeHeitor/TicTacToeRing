@@ -12,6 +12,9 @@ TYPE object
     y AS INTEGER
     set AS STRING * 6
     start AS SINGLE
+    r AS INTEGER
+    g AS INTEGER
+    b AS INTEGER
 END TYPE
 
 DIM canvas AS LONG
@@ -43,14 +46,14 @@ NEXT
 
 'ring colors
 DIM c(8) AS _UNSIGNED LONG: i = 0
-i = i + 1: c(i) = _RGB32(55, 105, 183) 'blue
-i = i + 1: c(i) = _RGB32(122, 177, 83) 'green
+i = i + 1: c(i) = _RGB32(0, 78, 249) 'blue
+i = i + 1: c(i) = _RGB32(61, 205, 28) 'green
 i = i + 1: c(i) = _RGB32(222, 61, 44) 'red
-i = i + 1: c(i) = _RGB32(216, 216, 133) 'yellow
-i = i + 1: c(i) = _RGB32(222, 133, 44) 'orange
-i = i + 1: c(i) = _RGB32(222, 155, 161) 'pink
+i = i + 1: c(i) = _RGB32(216, 216, 44) 'yellow
+i = i + 1: c(i) = _RGB32(233, 139, 17) 'orange
+i = i + 1: c(i) = _RGB32(222, 105, 161) 'pink
 i = i + 1: c(i) = _RGB32(139, 11, 205) 'purple
-i = i + 1: c(i) = _RGB32(55, 183, 183) 'cyan
+i = i + 1: c(i) = _RGB32(55, 211, 211) 'cyan
 
 'generate ring images
 DIM circleImage(1 TO i, 1 TO 3) AS LONG
@@ -65,13 +68,41 @@ FOR j = 1 TO UBOUND(c)
     NEXT
 NEXT
 
+'generate bg
+_DEST _DISPLAY
+DIM bg AS LONG
+bg = _NEWIMAGE(_WIDTH, _HEIGHT, 32)
+_DEST bg
+FOR i = 0 TO _HEIGHT - 1 STEP _HEIGHT / 40
+    LINE (0, 0)-(_WIDTH - 1, i), _RGB32(127, 10), BF
+NEXT
+
+'flash warning
+DIM bgFlashStart AS SINGLE
+_DEST _DISPLAY
+_DONTBLEND
+_PUTIMAGE (0, 0), bg
+_BLEND
+centerLarge (_HEIGHT / 2) - fontHeightLarge(2) / 2, "This game contains bright,", 2
+centerLarge (_HEIGHT / 2) + fontHeightLarge(2) / 2, "rapidly flashing colors.", 2
+
+bgFlashStart = TIMER
+DO
+    _DISPLAY
+    _LIMIT 30
+LOOP UNTIL TIMER - bgFlashStart > 3.5
+
+_DEST bg
+LINE (_WIDTH / 2 - (_WIDTH / spacing) * 2, _HEIGHT / 2 - (_HEIGHT / spacing) * 2)-STEP(_WIDTH / spacing * 4, _HEIGHT / spacing * 4), _RGB32(0, 50), BF
+
+'game
 DIM emptySet$
 emptySet$ = STRING$(6, 0)
 
-'game
 DIM score AS _UNSIGNED LONG, highscore AS _UNSIGNED LONG
 DIM level AS _UNSIGNED LONG, maxColors AS INTEGER
 DIM animation(1 TO 5) AS object
+CONST animDuration = .5
 
 DIM multiplier AS INTEGER
 multiplier = 1
@@ -81,17 +112,24 @@ _DEST _DISPLAY
 
 DO
     'redraw board
-    CLS , _RGB32(30)
+    _DONTBLEND
+    _PUTIMAGE (0, 0), bg
+    _BLEND
+
+    'animate bg flash if there's been a match recently
+    IF TIMER - bgFlashStart <= animDuration / 2 THEN
+        LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGB32(255, map(TIMER - bgFlashStart, 0, animDuration / 2, 100, 0)), BF
+    END IF
 
     'print osd
-    COLOR _RGB32(127)
+    COLOR _RGB32(200)
     _PRINTSTRING (52, 28), "*" + STR$(highscore)
 
     COLOR _RGB32(255)
     printLarge 0, 45, STR$(score), 6
 
     IF multiplier > 1 THEN
-        COLOR _RGB32(127)
+        COLOR _RGB32(200)
         _PRINTSTRING (52, 132), "x" + LTRIM$(STR$(multiplier))
     END IF
 
@@ -184,8 +222,12 @@ DO
                 IF r(1) = r(2) AND r(2) = r(3) THEN
                     score = score + 3 * multiplier
                     animation(5).start = TIMER
+                    bgFlashStart = TIMER
                     animation(5).x = peg(i).x
                     animation(5).y = peg(i).y
+                    animation(5).r = _RED32(c(r(1)))
+                    animation(5).g = _GREEN32(c(r(1)))
+                    animation(5).b = _BLUE32(c(r(1)))
                     del(i).set = emptySet$
                 END IF
 
@@ -240,8 +282,12 @@ DO
                                 NEXT
                                 scored = true
                                 animation(m).start = TIMER
+                                bgFlashStart = TIMER
                                 animation(m).x = peg(r(i)).x
                                 animation(m).y = peg(r(i)).y
+                                animation(m).r = _RED32(c(CVI(s$)))
+                                animation(m).g = _GREEN32(c(CVI(s$)))
+                                animation(m).b = _BLUE32(c(CVI(s$)))
                             END IF
 
                             IF scored THEN MID$(del(r(i)).set, j * 2 - 1, 2) = MKI$(0)
@@ -271,7 +317,7 @@ DO
                 highLit = 0
                 IF dist(peg(i).x, peg(i).y, _MOUSEX, _MOUSEY) <= 30 AND peg(i).set <> emptySet$ THEN
                     k = 0
-                    FOR j = 8 TO l STEP -.5
+                    FOR j = 20 TO l STEP -.5
                         k = k + .5
                         CircleFill peg(i).x, peg(i).y, 30 + k, _RGB32(255, j)
                     NEXT
@@ -305,23 +351,39 @@ DO
     NEXT
 
     'play match animation
-    CONST animDuration = .3
     FOR i = 1 TO 5
         IF TIMER - animation(i).start <= animDuration THEN
             DIM animSize AS SINGLE
             animSize = map(TIMER - animation(i).start, 0, animDuration, 50, 0)
             SELECT CASE i
                 CASE 1 'across
-                    FOR j = 1 TO animSize
-                        LINE (0, animation(i).y - j / 2)-STEP(_WIDTH, j), _RGB32(255, 20), BF
+                    FOR j = 0 TO _WIDTH STEP _WIDTH / 30
+                        FOR k = 1 TO animSize STEP 5
+                            CircleFill j, animation(i).y, k, _RGB32(animation(i).r, animation(i).g, animation(i).b, 20)
+                        NEXT
                     NEXT
                 CASE 2 'down
-                    FOR j = 1 TO animSize
-                        LINE (animation(i).x - j / 2, 0)-STEP(j, _HEIGHT), _RGB32(255, 20), BF
+                    FOR j = 0 TO _WIDTH STEP _WIDTH / 30
+                        FOR k = 1 TO animSize STEP 5
+                            CircleFill animation(i).x, j, k, _RGB32(animation(i).r, animation(i).g, animation(i).b, 20)
+                        NEXT
                     NEXT
                 CASE 3 'diagonal \
+                    FOR j = 0 TO _WIDTH STEP _WIDTH / 30
+                        FOR k = 1 TO animSize STEP 5
+                            CircleFill j, j, k, _RGB32(animation(i).r, animation(i).g, animation(i).b, 20)
+                        NEXT
+                    NEXT
                 CASE 4 'diagonal /
+                    FOR j = 0 TO _WIDTH STEP _WIDTH / 30
+                        FOR k = 1 TO animSize STEP 5
+                            CircleFill j, _HEIGHT - j, k, _RGB32(animation(i).r, animation(i).g, animation(i).b, 20)
+                        NEXT
+                    NEXT
                 CASE 5 'single peg ((o))
+                    FOR k = 1 TO animSize
+                        CircleFill animation(i).x, animation(i).y, k, _RGB32(animation(i).r, animation(i).g, animation(i).b, 20)
+                    NEXT
             END SELECT
         END IF
     NEXT
