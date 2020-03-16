@@ -1,10 +1,9 @@
-$NOPREFIX
-OPTION EXPLICIT
+OPTION _EXPLICIT
 
 CONST true = -1, false = 0
 
 'Required shared variables for printLarge
-DIM SHARED charSet(255, 1 TO 16, 1 TO 8) AS BYTE
+DIM SHARED charSet(255, 1 TO 16, 1 TO 8) AS _BYTE
 
 initializeCharSetPrintLarge
 
@@ -15,52 +14,53 @@ TYPE rings
 END TYPE
 
 DIM canvas AS LONG
-canvas = NEWIMAGE(600, 600, 32)
+canvas = _NEWIMAGE(600, 600, 32)
 
 SCREEN canvas
-TITLE "Tic Tac Toe Ring"
-PRINTMODE KEEPBACKGROUND
+_TITLE "Tic Tac Toe Ring"
+_PRINTMODE _KEEPBACKGROUND
 
 DIM peg(1 TO 12) AS rings
+DIM del(1 TO 9) AS rings
 
 'set pegs positions
 DIM spacing AS INTEGER, l AS INTEGER
 DIM i AS INTEGER, j AS SINGLE, k AS SINGLE
 spacing = 6
-l = -(HEIGHT / spacing)
+l = -(_HEIGHT / spacing)
 FOR i = 1 TO 12
     j = j + 1
-    IF j > 3 THEN j = 1: l = l + (HEIGHT / spacing)
+    IF j > 3 THEN j = 1: l = l + (_HEIGHT / spacing)
     SELECT CASE j
-        CASE 1: k = -WIDTH / spacing
+        CASE 1: k = -_WIDTH / spacing
         CASE 2: k = 0
-        CASE 3: k = WIDTH / spacing
+        CASE 3: k = _WIDTH / spacing
     END SELECT
-    peg(i).x = WIDTH / 2 + k
-    peg(i).y = HEIGHT / 2 + l
+    peg(i).x = _WIDTH / 2 + k
+    peg(i).y = _HEIGHT / 2 + l
 NEXT
 
 'ring colors
-DIM c(8) AS UNSIGNED LONG: i = 0
-i = i + 1: c(i) = RGB32(55, 105, 183) 'blue
-i = i + 1: c(i) = RGB32(122, 177, 83) 'green
-i = i + 1: c(i) = RGB32(222, 61, 44) 'red
-i = i + 1: c(i) = RGB32(216, 216, 133) 'yellow
-i = i + 1: c(i) = RGB32(222, 133, 44) 'orange
-i = i + 1: c(i) = RGB32(222, 155, 161) 'pink
-i = i + 1: c(i) = RGB32(139, 11, 205) 'purple
-i = i + 1: c(i) = RGB32(55, 183, 183) 'cyan
+DIM c(8) AS _UNSIGNED LONG: i = 0
+i = i + 1: c(i) = _RGB32(55, 105, 183) 'blue
+i = i + 1: c(i) = _RGB32(122, 177, 83) 'green
+i = i + 1: c(i) = _RGB32(222, 61, 44) 'red
+i = i + 1: c(i) = _RGB32(216, 216, 133) 'yellow
+i = i + 1: c(i) = _RGB32(222, 133, 44) 'orange
+i = i + 1: c(i) = _RGB32(222, 155, 161) 'pink
+i = i + 1: c(i) = _RGB32(139, 11, 205) 'purple
+i = i + 1: c(i) = _RGB32(55, 183, 183) 'cyan
 
 'generate ring images
 DIM circleImage(1 TO i, 1 TO 3) AS LONG
 FOR j = 1 TO UBOUND(c)
     FOR k = 1 TO 3
-        circleImage(j, k) = NEWIMAGE(k * 22, k * 22, 32)
-        DEST circleImage(j, k)
-        PAINT (0, 0), RGB32(255, 0, 255)
-        CircleFill WIDTH / 2, HEIGHT / 2, k * 10, c(j)
-        CircleFill WIDTH / 2, HEIGHT / 2, k * (5 + k), RGB32(255, 0, 255)
-        CLEARCOLOR RGB32(255, 0, 255)
+        circleImage(j, k) = _NEWIMAGE(k * 22, k * 22, 32)
+        _DEST circleImage(j, k)
+        PAINT (0, 0), _RGB32(255, 0, 255)
+        CircleFill _WIDTH / 2, _HEIGHT / 2, k * 10, c(j)
+        CircleFill _WIDTH / 2, _HEIGHT / 2, k * (5 + k), _RGB32(255, 0, 255)
+        _CLEARCOLOR _RGB32(255, 0, 255)
     NEXT
 NEXT
 
@@ -68,33 +68,33 @@ DIM emptySet$
 emptySet$ = STRING$(6, 0)
 
 'game
-DIM score AS UNSIGNED LONG, highscore AS UNSIGNED LONG
-DIM level AS UNSIGNED LONG, maxColors AS INTEGER
+DIM score AS _UNSIGNED LONG, highscore AS _UNSIGNED LONG
+DIM level AS _UNSIGNED LONG, maxColors AS INTEGER
 DIM multiplier AS INTEGER
 multiplier = 1
 
-RANDOMIZE TIMER
-DEST DISPLAY
+'RANDOMIZE TIMER
+_DEST _DISPLAY
 
 DO
     'redraw board
-    CLS , RGB32(30)
+    CLS , _RGB32(30)
 
     'print osd
-    COLOR RGB32(127)
-    PRINTSTRING (32, 28), "*" + STR$(highscore)
+    COLOR _RGB32(127)
+    _PRINTSTRING (52, 28), "*" + STR$(highscore)
 
-    COLOR RGB32(255)
-    printLarge 0, 45, STR$(score), 4
+    COLOR _RGB32(255)
+    printLarge 0, 45, STR$(score), 6
 
     IF multiplier > 1 THEN
-        COLOR RGB32(127)
-        PRINTSTRING (32, 102), "x" + LTRIM$(STR$(multiplier))
+        COLOR _RGB32(127)
+        _PRINTSTRING (52, 132), "x" + LTRIM$(STR$(multiplier))
     END IF
 
     'draw pegs
     FOR i = 1 TO 9
-        CircleFill peg(i).x, peg(i).y, 3, RGB32(255)
+        CircleFill peg(i).x, peg(i).y, 3, _RGB32(255)
     NEXT
 
     'generate new sets
@@ -107,24 +107,24 @@ DO
         FOR i = 10 TO 12
             DO
                 FOR j = 1 TO 3
-                    IF RND * 100 < 30 THEN MID$(peg(i).set, j * 2 - 1, 2) = MKI$(CEIL(RND * maxColors))
+                    IF RND * 100 < 30 THEN MID$(peg(i).set, j * 2 - 1, 2) = MKI$(_CEIL(RND * maxColors))
                 NEXT
             LOOP WHILE peg(i).set = emptySet$
         NEXT
     END IF
 
     'read mouse data
-    WHILE MOUSEINPUT: WEND
+    WHILE _MOUSEINPUT: WEND
 
-    IF MOUSEBUTTON(1) THEN
+    IF _MOUSEBUTTON(1) THEN
         'drag?
         DIM dragging AS INTEGER
-        DIM mouseDown AS BYTE
+        DIM mouseDown AS _BYTE
         IF NOT mouseDown THEN
             'are we beginning to drag a ring or set of rings?
             dragging = 0
             FOR i = 10 TO 12
-                IF dist(peg(i).x, peg(i).y, MOUSEX, MOUSEY) <= 30 AND peg(i).set <> emptySet$ THEN
+                IF dist(peg(i).x, peg(i).y, _MOUSEX, _MOUSEY) <= 30 AND peg(i).set <> emptySet$ THEN
                     dragging = i
                     EXIT FOR
                 END IF
@@ -135,12 +135,12 @@ DO
     ELSE
         IF mouseDown THEN
             'place rings
-            DIM placed AS BYTE
+            DIM placed AS _BYTE
             placed = false
 
             IF dragging THEN
                 FOR i = 1 TO 9
-                    IF dist(peg(i).x, peg(i).y, MOUSEX, MOUSEY) <= 30 THEN
+                    IF dist(peg(i).x, peg(i).y, _MOUSEX, _MOUSEY) <= 30 THEN
                         'check that the chosen peg can hold the current set of rings
                         placed = true
                         FOR j = 1 TO 3
@@ -164,33 +164,93 @@ DO
                 NEXT
             END IF
 
+            FOR j = 1 TO 9
+                'prepare backup copies for deletion tagging
+                del(j) = peg(j)
+            NEXT
+
             'check matches
-            DIM r(1 TO 3) AS INTEGER, scored AS BYTE
-            scored = false
+            DIM r(1 TO 3) AS INTEGER, previousScore AS _UNSIGNED LONG
+            DIM s$, found1 AS INTEGER, found2 AS INTEGER, scored AS _BYTE
+            previousScore = score
             IF placed THEN
+                'look for 3 same-color rings on peg(i)
                 FOR j = 1 TO 3
                     r(j) = CVI(MID$(peg(i).set, j * 2 - 1, 2))
                 NEXT
-
-                'look for 3 same-color rings on a peg
                 IF r(1) = r(2) AND r(2) = r(3) THEN
                     score = score + 3 * multiplier
-                    scored = true
                     peg(i).set = emptySet$
                 END IF
 
-                'look for horizontal match
+                'look for line matches |, -, /, \
+                DIM m AS INTEGER, checks AS INTEGER
+                DIM nextPeg(0 TO 2) AS INTEGER
+                FOR m = 1 TO 4
+                    SELECT CASE m
+                        CASE 1 'across
+                            checks = 3
+                            r(1) = 1
+                            r(2) = 4
+                            r(3) = 7
+                            nextPeg(1) = 1
+                            nextPeg(2) = 2
+                        CASE 2 'down
+                            checks = 3
+                            r(1) = 1
+                            r(2) = 2
+                            r(3) = 3
+                            nextPeg(1) = 3
+                            nextPeg(2) = 6
+                        CASE 3 'diagonal \
+                            checks = 1
+                            r(1) = 1
+                            nextPeg(1) = 4
+                            nextPeg(2) = 8
+                        CASE 4 'diagonal /
+                            checks = 1
+                            r(1) = 3
+                            nextPeg(1) = 2
+                            nextPeg(2) = 4
+                    END SELECT
 
-                'look for vertical match
+                    FOR i = 1 TO checks
+                        'look at each ring on the first peg of each row
+                        FOR j = 1 TO 3
+                            scored = false
+                            s$ = MID$(peg(r(i)).set, j * 2 - 1, 2)
+                            IF s$ = MKI$(0) THEN _CONTINUE
+                            found1 = INSTR(peg(r(i) + nextPeg(1)).set, s$)
+                            found2 = INSTR(peg(r(i) + nextPeg(2)).set, s$)
+                            IF found1 > 0 AND found2 > 0 THEN
+                                'match! clear all rings of the same color in this group of pegs
+                                FOR k = 0 TO 2
+                                    found1 = INSTR(del(r(i) + nextPeg(k)).set, s$)
+                                    DO WHILE found1
+                                        MID$(del(r(i) + nextPeg(k)).set, found1, 2) = MKI$(0)
+                                        score = score + multiplier
+                                        found1 = INSTR(del(r(i) + nextPeg(k)).set, s$)
+                                    LOOP
+                                NEXT
+                                scored = true
+                            END IF
 
-                'look for diagonal match
-
-                'look for T match
-
-                'look for L match
-
+                            IF scored THEN MID$(del(r(i)).set, j * 2 - 1, 2) = MKI$(0)
+                        NEXT
+                    NEXT
+                NEXT
             END IF
-            IF scored THEN multiplier = multiplier + 1 ELSE multiplier = 1
+
+            FOR j = 1 TO 9
+                'perform deletion
+                peg(j) = del(j)
+            NEXT
+
+            IF previousScore < score THEN
+                multiplier = multiplier + 1
+            ELSE
+                multiplier = 1
+            END IF
             IF score > highscore THEN highscore = score
         ELSE
             'highlight sets in the shelf
@@ -200,11 +260,11 @@ DO
 
             FOR i = 10 TO 12
                 highLit = 0
-                IF dist(peg(i).x, peg(i).y, MOUSEX, MOUSEY) <= 30 AND peg(i).set <> emptySet$ THEN
+                IF dist(peg(i).x, peg(i).y, _MOUSEX, _MOUSEY) <= 30 AND peg(i).set <> emptySet$ THEN
                     k = 0
                     FOR j = 8 TO l STEP -.5
                         k = k + .5
-                        CircleFill peg(i).x, peg(i).y, 30 + k, RGB32(255, j)
+                        CircleFill peg(i).x, peg(i).y, 30 + k, _RGB32(255, j)
                     NEXT
                     highLit = i
                     EXIT FOR
@@ -219,8 +279,8 @@ DO
     DIM x AS INTEGER, y AS INTEGER
     FOR i = 1 TO 12
         IF i = dragging THEN
-            x = MOUSEX
-            y = MOUSEY
+            x = _MOUSEX
+            y = _MOUSEY
         ELSE
             x = peg(i).x
             y = peg(i).y
@@ -230,16 +290,16 @@ DO
             DIM thisColor AS INTEGER
             thisColor = CVI(MID$(peg(i).set, j * 2 - 1, 2))
             IF thisColor > 0 THEN
-                PUTIMAGE (x - (WIDTH(circleImage(thisColor, j)) / 2), y - (HEIGHT(circleImage(thisColor, j)) / 2)), circleImage(thisColor, j)
+                _PUTIMAGE (x - (_WIDTH(circleImage(thisColor, j)) / 2), y - (_HEIGHT(circleImage(thisColor, j)) / 2)), circleImage(thisColor, j)
             END IF
         NEXT
     NEXT
 
     'update display
-    DISPLAY
+    _DISPLAY
 
     'limit fps
-    LIMIT 60
+    _LIMIT 60
 LOOP
 
 
