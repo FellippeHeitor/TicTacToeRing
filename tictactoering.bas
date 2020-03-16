@@ -4,7 +4,7 @@ OPTION EXPLICIT
 CONST true = -1, false = 0
 
 'Required shared variables for printLarge
-DIM SHARED charSet(255, 1 TO 16, 1 TO 8) AS _BYTE
+DIM SHARED charSet(255, 1 TO 16, 1 TO 8) AS BYTE
 
 initializeCharSetPrintLarge
 
@@ -69,6 +69,9 @@ emptySet$ = STRING$(6, 0)
 
 'game
 DIM score AS UNSIGNED LONG, highscore AS UNSIGNED LONG
+DIM level AS UNSIGNED LONG, maxColors AS INTEGER
+DIM multiplier AS INTEGER
+multiplier = 1
 
 RANDOMIZE TIMER
 DEST DISPLAY
@@ -77,19 +80,34 @@ DO
     'redraw board
     CLS , RGB32(30)
 
+    'print osd
+    COLOR RGB32(127)
     PRINTSTRING (32, 28), "*" + STR$(highscore)
+
+    COLOR RGB32(255)
     printLarge 0, 45, STR$(score), 4
 
+    IF multiplier > 1 THEN
+        COLOR RGB32(127)
+        PRINTSTRING (32, 102), "x" + LTRIM$(STR$(multiplier))
+    END IF
+
+    'draw pegs
     FOR i = 1 TO 9
         CircleFill peg(i).x, peg(i).y, 3, RGB32(255)
     NEXT
 
     'generate new sets
     IF peg(10).set = emptySet$ AND peg(11).set = emptySet$ AND peg(12).set = emptySet$ THEN
+        level = level + 1
+        maxColors = map(level, 1, 30, 3, UBOUND(c)) 'as level goes up, add more colors
+        IF maxColors < 3 THEN maxColors = 3
+        IF maxColors > UBOUND(c) THEN maxColors = UBOUND(c)
+
         FOR i = 10 TO 12
             DO
                 FOR j = 1 TO 3
-                    IF RND * 100 < 30 THEN MID$(peg(i).set, j * 2 - 1, 2) = MKI$(_CEIL(RND * UBOUND(c)))
+                    IF RND * 100 < 30 THEN MID$(peg(i).set, j * 2 - 1, 2) = MKI$(CEIL(RND * maxColors))
                 NEXT
             LOOP WHILE peg(i).set = emptySet$
         NEXT
@@ -147,8 +165,33 @@ DO
             END IF
 
             'check matches
+            DIM r(1 TO 3) AS INTEGER, scored AS BYTE
+            scored = false
             IF placed THEN
+                FOR j = 1 TO 3
+                    r(j) = CVI(MID$(peg(i).set, j * 2 - 1, 2))
+                NEXT
+
+                'look for 3 same-color rings on a peg
+                IF r(1) = r(2) AND r(2) = r(3) THEN
+                    score = score + 3 * multiplier
+                    scored = true
+                    peg(i).set = emptySet$
+                END IF
+
+                'look for horizontal match
+
+                'look for vertical match
+
+                'look for diagonal match
+
+                'look for T match
+
+                'look for L match
+
             END IF
+            IF scored THEN multiplier = multiplier + 1 ELSE multiplier = 1
+            IF score > highscore THEN highscore = score
         ELSE
             'highlight sets in the shelf
             DIM highLit AS INTEGER
@@ -222,6 +265,10 @@ SUB CircleFill (x AS LONG, y AS LONG, R AS LONG, C AS _UNSIGNED LONG)
     LOOP
     LINE (x - R, y)-(x + R, y), C, BF
 END SUB
+
+FUNCTION map! (value!, minRange!, maxRange!, newMinRange!, newMaxRange!)
+    map! = ((value! - minRange!) / (maxRange! - minRange!)) * (newMaxRange! - newMinRange!) + newMinRange!
+END FUNCTION
 
 FUNCTION dist! (x1!, y1!, x2!, y2!)
     dist! = _HYPOT((x2! - x1!), (y2! - y1!))
