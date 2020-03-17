@@ -8,8 +8,12 @@ DIM SHARED charSet(255, 1 TO 16, 1 TO 8) AS _BYTE
 initializeCharSetPrintLarge
 
 TYPE object
-    x AS INTEGER
-    y AS INTEGER
+    x AS SINGLE
+    y AS SINGLE
+    xv AS SINGLE
+    yv AS SINGLE
+    xa AS SINGLE
+    ya AS SINGLE
     set AS STRING * 6
     start AS SINGLE
     r AS INTEGER
@@ -24,8 +28,12 @@ SCREEN canvas
 _TITLE "Tic Tac Toe Ring"
 _PRINTMODE _KEEPBACKGROUND
 
-DIM peg(1 TO 12) AS object
+DIM peg(0 TO 12) AS object
 DIM del(1 TO 9) AS object
+
+DIM emptySet$
+emptySet$ = MKI$(-1) + MKI$(-1) + MKI$(-1)
+peg(0).set = emptySet$
 
 'set pegs positions
 DIM spacing AS INTEGER, l AS INTEGER
@@ -42,6 +50,7 @@ FOR i = 1 TO 12
     END SELECT
     peg(i).x = _WIDTH / 2 + k
     peg(i).y = _HEIGHT / 2 + l
+    peg(i).set = emptySet$
 NEXT
 
 'ring colors
@@ -73,8 +82,8 @@ _DEST _DISPLAY
 DIM bg AS LONG
 bg = _NEWIMAGE(_WIDTH, _HEIGHT, 32)
 _DEST bg
-FOR i = 0 TO _HEIGHT - 1 STEP _HEIGHT / 40
-    LINE (0, 0)-(_WIDTH - 1, i), _RGB32(127, 10), BF
+FOR i = 0 TO _HEIGHT - 1 STEP _HEIGHT / 60
+    LINE (0, 0)-(_WIDTH - 1, i), _RGB32(100, 5), BF
 NEXT
 
 'flash warning
@@ -90,24 +99,88 @@ bgFlashStart = TIMER
 DO
     _DISPLAY
     _LIMIT 30
-LOOP UNTIL TIMER - bgFlashStart > 3.5
+LOOP UNTIL TIMER - bgFlashStart > 2 OR _KEYHIT
+
+'intro
+RANDOMIZE TIMER
+DIM x AS INTEGER, y AS INTEGER
+DIM introRings(1 TO 30) AS object
+FOR i = 1 TO UBOUND(introRings)
+    introRings(i).xa = RND * _PI(2)
+    introRings(i).xv = RND * 3
+    introRings(i).r = RND * 30
+    introRings(i).set = MKI$(_CEIL(RND * UBOUND(c))) + MKI$(_CEIL(RND * UBOUND(c))) + MKI$(_CEIL(RND * UBOUND(c)))
+NEXT
+
+bgFlashStart = TIMER
+DO
+    _DONTBLEND
+    _PUTIMAGE (0, 0), bg
+    _BLEND
+
+    FOR i = 1 TO UBOUND(introRings)
+        introRings(i).xa = introRings(i).xa + .01
+        introRings(i).r = introRings(i).r + introRings(i).xv
+        x = _WIDTH / 2 + COS(introRings(i).xa) * introRings(i).r
+        y = _HEIGHT / 2 + SIN(introRings(i).xa) * introRings(i).r
+
+        FOR j = 1 TO 3
+            DIM thisColor AS INTEGER
+            thisColor = CVI(MID$(introRings(i).set, j * 2 - 1, 2))
+            IF thisColor > 0 THEN
+                _PUTIMAGE (x - (_WIDTH(circleImage(thisColor, j)) / 2), y - (_HEIGHT(circleImage(thisColor, j)) / 2)), circleImage(thisColor, j)
+            END IF
+        NEXT
+    NEXT
+
+    LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGB32(255, 60), BF
+
+    COLOR _RGB32(0)
+    centerLarge (_HEIGHT / 2) - fontHeightLarge(2) + 5, "Tic Tac Toe", 2
+    centerLarge (_HEIGHT / 2) + 5, "Rings", 7
+
+    COLOR _RGB32(255)
+    centerLarge (_HEIGHT / 2) - fontHeightLarge(2), "Tic Tac Toe", 2
+    centerLarge (_HEIGHT / 2), "Rings", 7
+
+    LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGB32(255, map(TIMER - bgFlashStart, 0, 1.5, 255, 0)), BF
+    LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGB32(255, map(TIMER - bgFlashStart, 4, 5, 0, 255)), BF
+    LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGB32(0, map(TIMER - bgFlashStart, 5, 6, 0, 255)), BF
+
+    _DISPLAY
+    _LIMIT 60
+LOOP UNTIL TIMER - bgFlashStart > 6 OR _KEYHIT
 
 _DEST bg
 LINE (_WIDTH / 2 - (_WIDTH / spacing) * 2, _HEIGHT / 2 - (_HEIGHT / spacing) * 2)-STEP(_WIDTH / spacing * 4, _HEIGHT / spacing * 4), _RGB32(0, 50), BF
 
 'game
-DIM emptySet$
-emptySet$ = STRING$(6, 0)
-
 DIM score AS _UNSIGNED LONG, highscore AS _UNSIGNED LONG
 DIM level AS _UNSIGNED LONG, maxColors AS INTEGER
-DIM animation(1 TO 5) AS object
+DIM animation(1 TO 5) AS object, gameOver AS _BYTE
 CONST animDuration = .5
 
 DIM multiplier AS INTEGER
 multiplier = 1
 
-RANDOMIZE TIMER
+OPEN "tictactoering.score" FOR BINARY AS #1
+IF LOF(1) THEN
+    GET #1, 1, score
+    GET #1, , highscore
+    GET #1, , level
+    GET #1, , gameOver
+    IF gameOver = false THEN
+        FOR i = 1 TO 12
+            GET #1, , peg(i)
+        NEXT
+    ELSE
+        gameOver = false
+        score = 0
+        level = 0
+    END IF
+END IF
+CLOSE #1
+
 _DEST _DISPLAY
 
 DO
@@ -116,7 +189,7 @@ DO
     _PUTIMAGE (0, 0), bg
     _BLEND
 
-    'animate bg flash if there's been a match recently
+    'animate bg flash if there's just been a match
     IF TIMER - bgFlashStart <= animDuration / 2 THEN
         LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGB32(255, map(TIMER - bgFlashStart, 0, animDuration / 2, 100, 0)), BF
     END IF
@@ -138,17 +211,49 @@ DO
         CircleFill peg(i).x, peg(i).y, 3, _RGB32(255)
     NEXT
 
-    'generate new sets
-    IF peg(10).set = emptySet$ AND peg(11).set = emptySet$ AND peg(12).set = emptySet$ THEN
+    'generate new sets;
+    'new sets must be generated according to
+    'current board's available positions
+    IF peg(10).set + peg(11).set + peg(12).set = emptySet$ + emptySet$ + emptySet$ THEN
         level = level + 1
         maxColors = map(level, 1, 30, 3, UBOUND(c)) 'as level goes up, add more colors
         IF maxColors < 3 THEN maxColors = 3
         IF maxColors > UBOUND(c) THEN maxColors = UBOUND(c)
 
+        DIM pegsUsed AS STRING, thisPeg AS INTEGER, newPeg AS INTEGER
+        pegsUsed = ""
         FOR i = 10 TO 12
+            'reset this peg
+            peg(i).set = emptySet$
+
+            'choose an existing peg randomly
+            newPeg = _CEIL(RND * 9)
+            thisPeg = newPeg
+            DO
+                IF INSTR(peg(thisPeg).set, MKI$(-1)) > 0 AND INSTR(pegsUsed, MKI$(thisPeg)) = 0 THEN
+                    'found a peg with an empty slot or more
+                    EXIT DO
+                END IF
+                thisPeg = thisPeg + 1
+                IF thisPeg > 9 THEN thisPeg = 1
+                IF thisPeg = newPeg THEN
+                    'full circle
+                    thisPeg = 0
+                    EXIT DO
+                END IF
+            LOOP
+
+            'store the chosen peg's id
+            IF thisPeg > 0 THEN pegsUsed = pegsUsed + MKI$(thisPeg)
+
+            'generate a set, with random colors
             DO
                 FOR j = 1 TO 3
-                    IF RND * 100 < 30 THEN MID$(peg(i).set, j * 2 - 1, 2) = MKI$(_CEIL(RND * maxColors))
+                    IF MID$(peg(thisPeg).set, j * 2 - 1, 2) = MKI$(-1) THEN
+                        IF RND * 100 < 30 THEN
+                            MID$(peg(i).set, j * 2 - 1, 2) = MKI$(_CEIL(RND * maxColors))
+                        END IF
+                    END IF
                 NEXT
             LOOP WHILE peg(i).set = emptySet$
         NEXT
@@ -267,7 +372,7 @@ DO
                         FOR j = 1 TO 3
                             scored = false
                             s$ = MID$(peg(r(i)).set, j * 2 - 1, 2)
-                            IF s$ = MKI$(0) THEN _CONTINUE
+                            IF s$ = MKI$(-1) THEN _CONTINUE
                             found1 = INSTR(peg(r(i) + nextPeg(1)).set, s$)
                             found2 = INSTR(peg(r(i) + nextPeg(2)).set, s$)
                             IF found1 > 0 AND found2 > 0 THEN
@@ -275,7 +380,7 @@ DO
                                 FOR k = 0 TO 2
                                     found1 = INSTR(del(r(i) + nextPeg(k)).set, s$)
                                     DO WHILE found1
-                                        MID$(del(r(i) + nextPeg(k)).set, found1, 2) = MKI$(0)
+                                        MID$(del(r(i) + nextPeg(k)).set, found1, 2) = MKI$(-1)
                                         score = score + multiplier
                                         found1 = INSTR(del(r(i) + nextPeg(k)).set, s$)
                                     LOOP
@@ -290,14 +395,14 @@ DO
                                 animation(m).b = _BLUE32(c(CVI(s$)))
                             END IF
 
-                            IF scored THEN MID$(del(r(i)).set, j * 2 - 1, 2) = MKI$(0)
+                            IF scored THEN MID$(del(r(i)).set, j * 2 - 1, 2) = MKI$(-1)
                         NEXT
                     NEXT
                 NEXT
             END IF
 
             FOR j = 1 TO 9
-                'perform deletion
+                'perform deletion, if any items were marked = MKI$(-1)
                 peg(j) = del(j)
             NEXT
 
@@ -317,7 +422,7 @@ DO
                 highLit = 0
                 IF dist(peg(i).x, peg(i).y, _MOUSEX, _MOUSEY) <= 30 AND peg(i).set <> emptySet$ THEN
                     k = 0
-                    FOR j = 20 TO l STEP -.5
+                    FOR j = 12 TO l STEP -.5
                         k = k + .5
                         CircleFill peg(i).x, peg(i).y, 30 + k, _RGB32(255, j)
                     NEXT
@@ -330,8 +435,41 @@ DO
         dragging = 0
     END IF
 
+    'check available moves
+    IF dragging = 0 THEN
+        IF peg(10).set <> emptySet$ OR peg(11).set <> emptySet$ OR peg(12).set <> emptySet$ THEN
+            gameOver = true 'glass is half empty; consider no more moves
+            FOR i = 10 TO 12
+                IF peg(i).set <> emptySet$ THEN
+                    'can this set fit the board?
+                    FOR j = 1 TO 9
+                        placed = true
+                        FOR k = 1 TO 3
+                            IF CVI(MID$(peg(i).set, k * 2 - 1, 2)) > 0 AND CVI(MID$(peg(j).set, k * 2 - 1, 2)) > 0 THEN
+                                placed = false
+                                EXIT FOR
+                            END IF
+                        NEXT
+                        IF placed THEN gameOver = false: EXIT FOR
+                    NEXT
+                END IF
+                IF gameOver = false THEN EXIT FOR 'no need to test further, there's still hope
+            NEXT
+        END IF
+
+        IF gameOver = false THEN
+            'is board full?
+            'that means we used all sets and no matches were found = game over
+            DIM board$
+            board$ = ""
+            FOR i = 1 TO 9
+                board$ = board$ + peg(i).set
+            NEXT
+            IF INSTR(board$, MKI$(-1)) = 0 THEN gameOver = true
+        END IF
+    END IF
+
     'redraw rings
-    DIM x AS INTEGER, y AS INTEGER
     FOR i = 1 TO 12
         IF i = dragging THEN
             x = _MOUSEX
@@ -342,7 +480,6 @@ DO
         END IF
 
         FOR j = 1 TO 3
-            DIM thisColor AS INTEGER
             thisColor = CVI(MID$(peg(i).set, j * 2 - 1, 2))
             IF thisColor > 0 THEN
                 _PUTIMAGE (x - (_WIDTH(circleImage(thisColor, j)) / 2), y - (_HEIGHT(circleImage(thisColor, j)) / 2)), circleImage(thisColor, j)
@@ -393,8 +530,22 @@ DO
 
     'limit fps
     _LIMIT 60
-LOOP
 
+    DIM userQuit AS _BYTE
+    userQuit = _EXIT
+LOOP UNTIL gameOver OR userQuit
+
+PRINT "no more moves;"
+
+OPEN "tictactoering.score" FOR BINARY AS #1
+PUT #1, 1, score
+PUT #1, , highscore
+PUT #1, , level
+PUT #1, , gameOver
+FOR i = 1 TO 12
+    PUT #1, , peg(i)
+NEXT
+CLOSE #1
 
 SUB CircleFill (x AS LONG, y AS LONG, R AS LONG, C AS _UNSIGNED LONG)
     DIM x0 AS SINGLE, y0 AS SINGLE
@@ -442,11 +593,11 @@ SUB printLarge (x AS SINGLE, y AS SINGLE, text$, fontSize AS INTEGER)
             FOR j = 1 TO 8
                 IF charSet(char, i, j) THEN
                     IF _PRINTMODE <> 2 THEN
-                        LINE ((x - fontSize) + j * fontSize + ((c - 1) * (fontSize * 8)), (y - fontSize) + i * fontSize)-STEP(fontSize, fontSize), _DEFAULTCOLOR, BF
+                        LINE ((x - fontSize) + j * fontSize + ((c - 1) * (fontSize * 8)), (y - fontSize) + i * fontSize)-STEP(fontSize - 1, fontSize - 1), _DEFAULTCOLOR, BF
                     END IF
                 ELSE
                     IF _PRINTMODE = 3 OR _PRINTMODE = 2 THEN
-                        LINE ((x - fontSize) + j * fontSize + ((c - 1) * (fontSize * 8)), (y - fontSize) + i * fontSize)-STEP(fontSize, fontSize), _BACKGROUNDCOLOR, BF
+                        LINE ((x - fontSize) + j * fontSize + ((c - 1) * (fontSize * 8)), (y - fontSize) + i * fontSize)-STEP(fontSize - 1, fontSize - 1), _BACKGROUNDCOLOR, BF
                     END IF
                 END IF
             NEXT
