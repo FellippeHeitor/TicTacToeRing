@@ -253,16 +253,18 @@ DO 'main game loop
 
             'generate a set, with random colors
             DO
-                DO
-                    FOR j = 1 TO 3
-                        IF MID$(peg(thisPeg).set, j * 2 - 1, 2) = MKI$(-1) THEN
-                            IF RND * 100 < 30 THEN
-                                MID$(peg(i).set, j * 2 - 1, 2) = MKI$(_CEIL(RND * maxColors))
-                            END IF
+                FOR j = 1 TO 3
+                    IF MID$(peg(thisPeg).set, j * 2 - 1, 2) = MKI$(-1) THEN
+                        IF RND * 100 < 30 THEN
+                            MID$(peg(i).set, j * 2 - 1, 2) = MKI$(_CEIL(RND * maxColors))
                         END IF
-                    NEXT
-                LOOP WHILE peg(i).set = emptySet$ 'can't be empty
-            LOOP UNTIL INSTR(peg(i).set, MKI$(-1)) > 0 'can't be full
+                    END IF
+                NEXT
+            LOOP WHILE peg(i).set = emptySet$ 'can't be empty
+            IF INSTR(peg(i).set, MKI$(-1)) = 0 THEN 'can't be full
+                j = _CEIL(RND * 3)
+                MID$(peg(i).set, j * 2 - 1, 2) = MKI$(-1)
+            END IF
         NEXT
         animation(6).start = TIMER
     END IF
