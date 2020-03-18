@@ -16,6 +16,7 @@ TYPE object
     ya AS SINGLE
     set AS STRING * 6
     start AS SINGLE
+    duration AS SINGLE
     r AS INTEGER
     g AS INTEGER
     b AS INTEGER
@@ -83,23 +84,22 @@ DIM bg AS LONG
 bg = _NEWIMAGE(_WIDTH, _HEIGHT, 32)
 _DEST bg
 FOR i = 0 TO _HEIGHT - 1 STEP _HEIGHT / 60
-    LINE (0, 0)-(_WIDTH - 1, i), _RGB32(100, 5), BF
+    LINE (0, 0)-(_WIDTH - 1, i), _RGB32(139, 116, 177, 5), BF
 NEXT
 
 'flash warning
-DIM bgFlashStart AS SINGLE
 _DEST _DISPLAY
 _DONTBLEND
 _PUTIMAGE (0, 0), bg
 _BLEND
-centerLarge (_HEIGHT / 2) - fontHeightLarge(2) / 2, "This game contains bright,", 2
-centerLarge (_HEIGHT / 2) + fontHeightLarge(2) / 2, "rapidly flashing colors.", 2
+centerLarge (_HEIGHT / 2) - fontHeightLarge(2) / 2, "This game contains bright,", 2, false
+centerLarge (_HEIGHT / 2) + fontHeightLarge(2) / 2, "rapidly flashing colors.", 2, false
 
-bgFlashStart = TIMER
+j = TIMER
 DO
     _DISPLAY
     _LIMIT 30
-LOOP UNTIL TIMER - bgFlashStart > 2 OR _KEYHIT
+LOOP UNTIL TIMER - j > 2 OR _KEYHIT
 
 'intro
 RANDOMIZE TIMER
@@ -107,12 +107,13 @@ DIM x AS INTEGER, y AS INTEGER
 DIM introRings(1 TO 30) AS object
 FOR i = 1 TO UBOUND(introRings)
     introRings(i).xa = RND * _PI(2)
-    introRings(i).xv = RND * 3
-    introRings(i).r = RND * 30
+    introRings(i).xv = RND * 5
+    introRings(i).r = RND * 30 + 50
     introRings(i).set = MKI$(_CEIL(RND * UBOUND(c))) + MKI$(_CEIL(RND * UBOUND(c))) + MKI$(_CEIL(RND * UBOUND(c)))
 NEXT
 
-bgFlashStart = TIMER
+DIM introTimer AS SINGLE
+introTimer = TIMER
 DO
     _DONTBLEND
     _PUTIMAGE (0, 0), bg
@@ -136,29 +137,38 @@ DO
     LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGB32(255, 60), BF
 
     COLOR _RGB32(0)
-    centerLarge (_HEIGHT / 2) - fontHeightLarge(2) + 5, "Tic Tac Toe", 2
-    centerLarge (_HEIGHT / 2) + 5, "Rings", 7
+    centerLarge (_HEIGHT / 2) - fontHeightLarge(2) + 5, "Tic Tac Toe", 2, true
+    centerLarge (_HEIGHT / 2) + 5, "Rings", 7, true
 
     COLOR _RGB32(255)
-    centerLarge (_HEIGHT / 2) - fontHeightLarge(2), "Tic Tac Toe", 2
-    centerLarge (_HEIGHT / 2), "Rings", 7
+    centerLarge (_HEIGHT / 2) - fontHeightLarge(2), "Tic Tac Toe", 2, true
+    centerLarge (_HEIGHT / 2), "Rings", 7, true
 
-    LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGB32(255, map(TIMER - bgFlashStart, 0, 1.5, 255, 0)), BF
-    LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGB32(255, map(TIMER - bgFlashStart, 4, 5, 0, 255)), BF
-    LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGB32(0, map(TIMER - bgFlashStart, 5, 6, 0, 255)), BF
+    LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGB32(255, map(TIMER - introTimer, 0, 1.5, 255, 0)), BF
+    LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGB32(255, map(TIMER - introTimer, 4, 5, 0, 255)), BF
+    LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGB32(0, map(TIMER - introTimer, 5, 6, 0, 255)), BF
 
     _DISPLAY
     _LIMIT 60
-LOOP UNTIL TIMER - bgFlashStart > 6 OR _KEYHIT
+LOOP UNTIL TIMER - introTimer > 6 OR _KEYHIT
 
+'add divs to bg
 _DEST bg
 LINE (_WIDTH / 2 - (_WIDTH / spacing) * 2, _HEIGHT / 2 - (_HEIGHT / spacing) * 2)-STEP(_WIDTH / spacing * 4, _HEIGHT / spacing * 4), _RGB32(0, 50), BF
+LINE (3 + peg(10).x - (_WIDTH / spacing / 2), 3 + peg(10).y - (_WIDTH / spacing / 2))-(3 + peg(12).x + (_WIDTH / spacing / 2), 3 + peg(12).y + (_WIDTH / spacing / 2)), _RGB32(255, 15), BF
+LINE (peg(10).x - (_WIDTH / spacing / 2), peg(10).y - (_WIDTH / spacing / 2))-(peg(12).x + (_WIDTH / spacing / 2), peg(12).y + (_WIDTH / spacing / 2)), _RGB32(255, 15), BF
 
 'game
 DIM score AS _UNSIGNED LONG, highscore AS _UNSIGNED LONG
 DIM level AS _UNSIGNED LONG, maxColors AS INTEGER
-DIM animation(1 TO 5) AS object, gameOver AS _BYTE
-CONST animDuration = .5
+DIM animation(0 TO 7) AS object, gameOver AS _BYTE
+
+animation(0).duration = .25 'board flash
+FOR i = 1 TO 5
+    animation(i).duration = .5 'matches
+NEXT
+animation(6).duration = 1 'new set spawn
+animation(7).duration = 1 'combo info
 
 DIM multiplier AS INTEGER
 multiplier = 1
@@ -183,23 +193,18 @@ CLOSE #1
 
 _DEST _DISPLAY
 
-DO
+DO 'main game loop
     'redraw board
     _DONTBLEND
     _PUTIMAGE (0, 0), bg
     _BLEND
-
-    'animate bg flash if there's just been a match
-    IF TIMER - bgFlashStart <= animDuration / 2 THEN
-        LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGB32(255, map(TIMER - bgFlashStart, 0, animDuration / 2, 100, 0)), BF
-    END IF
 
     'print osd
     COLOR _RGB32(200)
     _PRINTSTRING (52, 28), "*" + STR$(highscore)
 
     COLOR _RGB32(255)
-    printLarge 0, 45, STR$(score), 6
+    printLarge 0, 45, STR$(score), 6, false
 
     IF multiplier > 1 THEN
         COLOR _RGB32(200)
@@ -248,19 +253,26 @@ DO
 
             'generate a set, with random colors
             DO
-                FOR j = 1 TO 3
-                    IF MID$(peg(thisPeg).set, j * 2 - 1, 2) = MKI$(-1) THEN
-                        IF RND * 100 < 30 THEN
-                            MID$(peg(i).set, j * 2 - 1, 2) = MKI$(_CEIL(RND * maxColors))
+                DO
+                    FOR j = 1 TO 3
+                        IF MID$(peg(thisPeg).set, j * 2 - 1, 2) = MKI$(-1) THEN
+                            IF RND * 100 < 30 THEN
+                                MID$(peg(i).set, j * 2 - 1, 2) = MKI$(_CEIL(RND * maxColors))
+                            END IF
                         END IF
-                    END IF
-                NEXT
-            LOOP WHILE peg(i).set = emptySet$
+                    NEXT
+                LOOP WHILE peg(i).set = emptySet$ 'can't be empty
+            LOOP UNTIL INSTR(peg(i).set, MKI$(-1)) > 0 'can't be full
         NEXT
+        animation(6).start = TIMER
     END IF
 
     'read mouse data
     WHILE _MOUSEINPUT: WEND
+
+    'read keyboard
+    DIM keyb AS LONG
+    keyb = _KEYHIT
 
     IF _MOUSEBUTTON(1) THEN
         'drag?
@@ -326,8 +338,8 @@ DO
                 NEXT
                 IF r(1) = r(2) AND r(2) = r(3) THEN
                     score = score + 3 * multiplier
+                    animation(0).start = TIMER
                     animation(5).start = TIMER
-                    bgFlashStart = TIMER
                     animation(5).x = peg(i).x
                     animation(5).y = peg(i).y
                     animation(5).r = _RED32(c(r(1)))
@@ -386,8 +398,8 @@ DO
                                     LOOP
                                 NEXT
                                 scored = true
+                                animation(0).start = TIMER
                                 animation(m).start = TIMER
-                                bgFlashStart = TIMER
                                 animation(m).x = peg(r(i)).x
                                 animation(m).y = peg(r(i)).y
                                 animation(m).r = _RED32(c(CVI(s$)))
@@ -399,19 +411,21 @@ DO
                         NEXT
                     NEXT
                 NEXT
-            END IF
 
-            FOR j = 1 TO 9
-                'perform deletion, if any items were marked = MKI$(-1)
-                peg(j) = del(j)
-            NEXT
+                FOR j = 1 TO 9
+                    'perform deletion, if any items were marked = MKI$(-1)
+                    peg(j) = del(j)
+                NEXT
 
-            IF previousScore < score THEN
-                multiplier = multiplier + 1
-            ELSE
-                multiplier = 1
+                IF previousScore < score THEN
+                    multiplier = multiplier + 1
+                    animation(7).start = TIMER
+                ELSE
+                    multiplier = 1
+                END IF
+                IF score > highscore THEN highscore = score
+
             END IF
-            IF score > highscore THEN highscore = score
         ELSE
             'highlight the hovered set in the shelf
             DIM highLit AS INTEGER
@@ -487,12 +501,14 @@ DO
         NEXT
     NEXT
 
-    'play match animation
-    FOR i = 1 TO 5
-        IF TIMER - animation(i).start <= animDuration THEN
+    'board animations
+    FOR i = 0 TO 7
+        IF TIMER - animation(i).start <= animation(i).duration THEN
             DIM animSize AS SINGLE
-            animSize = map(TIMER - animation(i).start, 0, animDuration, 50, 0)
+            animSize = map(TIMER - animation(i).start, 0, animation(i).duration, 50, 0)
             SELECT CASE i
+                CASE 0 'board flash
+                    LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGB32(255, map(TIMER - animation(i).start, 0, animation(i).duration, 100, 0)), BF
                 CASE 1 'across
                     FOR j = 0 TO _WIDTH STEP _WIDTH / 30
                         FOR k = 1 TO animSize STEP 5
@@ -521,6 +537,23 @@ DO
                     FOR k = 1 TO animSize
                         CircleFill animation(i).x, animation(i).y, k, _RGB32(animation(i).r, animation(i).g, animation(i).b, 20)
                     NEXT
+                CASE 6 'new peg set
+                    FOR k = 10 TO 12
+                        CIRCLE (peg(k).x, peg(k).y), animSize * 1.5, _RGB32(255, animSize / 2)
+                        CIRCLE (peg(k).x, peg(k).y), animSize, _RGB32(255, animSize)
+                    NEXT
+                CASE 7 'combo info
+                    k = INT(map(animSize, 50, 40, 1, 4))
+                    IF k < 1 THEN k = 1
+                    IF k > 4 THEN k = 4
+                    DIM m$
+                    m$ = LTRIM$(STR$(multiplier)) + "x combo!"
+                    COLOR _RGB32(0)
+                    FOR l = -5 TO 5 STEP 5
+                        printLarge (l + _WIDTH - printWidthLarge(m$, k)) / 2, (l + _HEIGHT - fontHeightLarge(k)) / 2, m$, k, true
+                    NEXT
+                    COLOR _RGB32(255)
+                    printLarge (_WIDTH - printWidthLarge(m$, k)) / 2, (_HEIGHT - fontHeightLarge(k)) / 2, m$, k, true
             END SELECT
         END IF
     NEXT
@@ -533,9 +566,10 @@ DO
 
     DIM userQuit AS _BYTE
     userQuit = _EXIT
+    IF userQuit = 0 THEN userQuit = (keyb = -27)
 LOOP UNTIL gameOver OR userQuit
 
-PRINT "no more moves;"
+IF gameOver THEN PRINT "no more moves;"
 
 OPEN "tictactoering.score" FOR BINARY AS #1
 PUT #1, 1, score
@@ -574,6 +608,10 @@ FUNCTION map! (value!, minRange!, maxRange!, newMinRange!, newMaxRange!)
     map! = ((value! - minRange!) / (maxRange! - minRange!)) * (newMaxRange! - newMinRange!) + newMinRange!
 END FUNCTION
 
+FUNCTION lerp! (start!, stp!, amt!)
+    lerp! = amt! * (stp! - start!) + start!
+END FUNCTION
+
 FUNCTION dist! (x1!, y1!, x2!, y2!)
     dist! = _HYPOT((x2! - x1!), (y2! - y1!))
 END FUNCTION
@@ -582,10 +620,11 @@ FUNCTION distB! (v1 AS object, v2 AS object)
     distB! = dist!(v1.x, v1.y, v2.x, v2.y)
 END FUNCTION
 
-SUB printLarge (x AS SINGLE, y AS SINGLE, text$, fontSize AS INTEGER)
+SUB printLarge (x AS SINGLE, y AS SINGLE, text$, fontSize AS INTEGER, bold AS _BYTE)
     DIM i AS LONG, j AS LONG, c AS LONG, char AS _UNSIGNED _BYTE
 
     IF fontSize = 0 THEN fontSize = 1
+    bold = NOT bold
 
     FOR c = 1 TO LEN(text$)
         char = ASC(text$, c)
@@ -593,11 +632,11 @@ SUB printLarge (x AS SINGLE, y AS SINGLE, text$, fontSize AS INTEGER)
             FOR j = 1 TO 8
                 IF charSet(char, i, j) THEN
                     IF _PRINTMODE <> 2 THEN
-                        LINE ((x - fontSize) + j * fontSize + ((c - 1) * (fontSize * 8)), (y - fontSize) + i * fontSize)-STEP(fontSize - 1, fontSize - 1), _DEFAULTCOLOR, BF
+                        LINE ((x - fontSize) + j * fontSize + ((c - 1) * (fontSize * 8)), (y - fontSize) + i * fontSize)-STEP(fontSize - ABS(bold), fontSize - ABS(bold)), _DEFAULTCOLOR, BF
                     END IF
                 ELSE
                     IF _PRINTMODE = 3 OR _PRINTMODE = 2 THEN
-                        LINE ((x - fontSize) + j * fontSize + ((c - 1) * (fontSize * 8)), (y - fontSize) + i * fontSize)-STEP(fontSize - 1, fontSize - 1), _BACKGROUNDCOLOR, BF
+                        LINE ((x - fontSize) + j * fontSize + ((c - 1) * (fontSize * 8)), (y - fontSize) + i * fontSize)-STEP(fontSize - ABS(bold), fontSize - ABS(bold)), _BACKGROUNDCOLOR, BF
                     END IF
                 END IF
             NEXT
@@ -605,8 +644,8 @@ SUB printLarge (x AS SINGLE, y AS SINGLE, text$, fontSize AS INTEGER)
     NEXT
 END SUB
 
-SUB centerLarge (y AS SINGLE, text$, fontSize AS INTEGER)
-    printLarge (_WIDTH - printWidthLarge(text$, fontSize)) / 2, y, text$, fontSize
+SUB centerLarge (y AS SINGLE, text$, fontSize AS INTEGER, bold AS _BYTE)
+    printLarge (_WIDTH - printWidthLarge(text$, fontSize)) / 2, y, text$, fontSize, bold
 END SUB
 
 FUNCTION fontHeightLarge (fontSize AS INTEGER)
