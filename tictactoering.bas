@@ -410,11 +410,11 @@ SUB generateRingImages
 
     FOR j = 1 TO UBOUND(c)
         FOR k = 1 TO 3
-            circleImage(j, k) = _NEWIMAGE(k * 26, k * 26, 32)
+            circleImage(j, k) = _NEWIMAGE(k * 29, k * 29, 32)
             _DEST circleImage(j, k)
             PAINT (0, 0), _RGB32(255, 0, 255)
-            CircleFill _WIDTH / 2, _HEIGHT / 2, k * 10, c(j)
-            CircleFill _WIDTH / 2, _HEIGHT / 2, k * (5 + k), _RGB32(255, 0, 255)
+            CircleFill _WIDTH / 2, _HEIGHT / 2, k * 14, c(j)
+            CircleFill _WIDTH / 2, _HEIGHT / 2, k * (8 + k), _RGB32(255, 0, 255)
             _CLEARCOLOR _RGB32(255, 0, 255)
         NEXT
     NEXT
