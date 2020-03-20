@@ -83,7 +83,8 @@ LINE (3 + peg(10).x - (_WIDTH / spacing / 2), 3 + peg(10).y - (_WIDTH / spacing 
 LINE (peg(10).x - (_WIDTH / spacing / 2), peg(10).y - (_WIDTH / spacing / 2))-(peg(12).x + (_WIDTH / spacing / 2), peg(12).y + (_WIDTH / spacing / 2)), _RGB32(255, 15), BF
 
 'game
-DIM score AS _UNSIGNED LONG, visibleScore AS _UNSIGNED LONG, highscore AS _UNSIGNED LONG
+DIM score AS _UNSIGNED LONG, visibleScore AS _UNSIGNED LONG
+DIM highscore AS _UNSIGNED LONG, visibleHighScore AS _UNSIGNED LONG
 DIM level AS _UNSIGNED LONG, maxColors AS INTEGER
 DIM animation(0 TO 8) AS object, gameOver AS _BYTE
 DIM particle(5000) AS object
@@ -101,6 +102,7 @@ multiplier = 1
 loadGame
 
 visibleScore = score
+visibleHighScore = highscore
 _DEST _DISPLAY
 
 DO
@@ -113,7 +115,7 @@ DO
         'print osd
         _PUTIMAGE (25, 28), crownIcon
         COLOR _RGB32(200)
-        _PRINTSTRING (52, 28), STR$(highscore)
+        _PRINTSTRING (52, 28), STR$(visibleHighScore)
 
         COLOR _RGB32(255)
         printLarge 0, 45, STR$(visibleScore), 6
@@ -308,12 +310,8 @@ DO
                 END IF
             ELSE
                 'highlight the hovered set in the shelf
-                DIM highLit AS INTEGER, halo AS INTEGER
-                IF highLit > 0 THEN l = l - 1 ELSE l = 8
-                IF l < 0 THEN l = 0
-
+                DIM highLit AS INTEGER, halo AS INTEGER, glow AS SINGLE, glowStep AS SINGLE
                 FOR i = 10 TO 12
-                    highLit = 0
                     IF dist(peg(i).x, peg(i).y, _MOUSEX, _MOUSEY) <= 40 AND peg(i).set <> emptySet$ THEN
                         k = 0
                         IF MID$(peg(i).set, 5, 2) <> MKI$(-1) THEN
@@ -324,12 +322,23 @@ DO
                             halo = 12
                         END IF
 
-                        FOR j = 14 TO l STEP -.5
-                            k = k + .5
+                        IF highLit <> i THEN
+                            highLit = i
+                            glow = 10
+                            glowStep = .1
+                        END IF
+
+                        IF glowStep = 0 THEN glowStep = .1
+                        glow = glow + glowStep
+                        IF glow < 8 THEN glow = 8: glowStep = glowStep * -1
+                        IF glow > 20 THEN glow = 20: glowStep = glowStep * -1
+
+                        FOR j = glow TO 8 STEP -.5
+                            k = k + .8
                             CircleFill peg(i).x, peg(i).y, halo + k, _RGB32(255, j)
                             CircleFill peg(i).x, peg(i).y, (halo / 2) + k, _RGB32(0, j)
                         NEXT
-                        highLit = i
+
                         EXIT FOR
                     END IF
                 NEXT
@@ -758,13 +767,19 @@ SUB addParticles (x AS SINGLE, y AS SINGLE, total AS INTEGER, c AS _UNSIGNED LON
 END SUB
 
 SUB updateScore
-    STATIC lastScoreUpdate AS SINGLE
+    STATIC lastScoreUpdate AS SINGLE, lastHighScoreUpdate AS SINGLE
     SHARED visibleScore AS _UNSIGNED LONG, score AS _UNSIGNED LONG
+    SHARED visibleHighScore AS _UNSIGNED LONG, highscore AS _UNSIGNED LONG
     SHARED animation() AS object
 
     IF visibleScore < score AND TIMER - lastScoreUpdate > .05 AND animation(8).start = 0 THEN
         visibleScore = visibleScore + 1
         lastScoreUpdate = TIMER
+    END IF
+
+    IF visibleHighScore < highscore AND TIMER - lastHighScoreUpdate > .05 AND animation(8).start = 0 THEN
+        visibleHighScore = visibleHighScore + 1
+        lastHighScoreUpdate = TIMER
     END IF
 END SUB
 
