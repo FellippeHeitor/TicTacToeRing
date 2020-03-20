@@ -140,7 +140,7 @@ DO
                 'are we beginning to drag a ring or set of rings?
                 dragging = 0
                 FOR i = 10 TO 12
-                    IF dist(peg(i).x, peg(i).y, _MOUSEX, _MOUSEY) <= 30 AND peg(i).set <> emptySet$ THEN
+                    IF dist(peg(i).x, peg(i).y, _MOUSEX, _MOUSEY) <= 40 AND peg(i).set <> emptySet$ THEN
                         dragging = i
                         EXIT FOR
                     END IF
@@ -156,7 +156,7 @@ DO
 
                 IF dragging THEN
                     FOR i = 1 TO 9
-                        IF dist(peg(i).x, peg(i).y, _MOUSEX, _MOUSEY) <= 30 THEN
+                        IF dist(peg(i).x, peg(i).y, _MOUSEX, _MOUSEY) <= 40 THEN
                             'check that the chosen peg can hold the current set of rings
                             placed = true
                             FOR j = 1 TO 3
@@ -308,18 +308,26 @@ DO
                 END IF
             ELSE
                 'highlight the hovered set in the shelf
-                DIM highLit AS INTEGER
+                DIM highLit AS INTEGER, halo AS INTEGER
                 IF highLit > 0 THEN l = l - 1 ELSE l = 8
                 IF l < 0 THEN l = 0
 
                 FOR i = 10 TO 12
                     highLit = 0
-                    IF dist(peg(i).x, peg(i).y, _MOUSEX, _MOUSEY) <= 30 AND peg(i).set <> emptySet$ THEN
+                    IF dist(peg(i).x, peg(i).y, _MOUSEX, _MOUSEY) <= 40 AND peg(i).set <> emptySet$ THEN
                         k = 0
-                        FOR j = 12 TO l STEP -.5
+                        IF MID$(peg(i).set, 5, 2) <> MKI$(-1) THEN
+                            halo = 40
+                        ELSEIF MID$(peg(i).set, 3, 2) <> MKI$(-1) THEN
+                            halo = 25
+                        ELSE
+                            halo = 12
+                        END IF
+
+                        FOR j = 14 TO l STEP -.5
                             k = k + .5
-                            CircleFill peg(i).x, peg(i).y, 30 + k, _RGB32(255, j)
-                            CircleFill peg(i).x, peg(i).y, 15 + k, _RGB32(0, j)
+                            CircleFill peg(i).x, peg(i).y, halo + k, _RGB32(255, j)
+                            CircleFill peg(i).x, peg(i).y, (halo / 2) + k, _RGB32(0, j)
                         NEXT
                         highLit = i
                         EXIT FOR
