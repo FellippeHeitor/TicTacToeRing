@@ -39,7 +39,7 @@ emptySet$ = MKI$(-1) + MKI$(-1) + MKI$(-1)
 peg(0).set = emptySet$
 
 'set pegs positions
-DIM spacing AS INTEGER, l AS INTEGER
+DIM spacing AS INTEGER
 DIM i AS INTEGER, j AS SINGLE, k AS SINGLE
 setPegs
 
@@ -308,45 +308,12 @@ DO
                     END IF
                     IF score > highscore THEN highscore = score
                 END IF
-            ELSE
-                'highlight the hovered set in the shelf
-                DIM highLit AS INTEGER, halo AS INTEGER, glow AS SINGLE, glowStep AS SINGLE
-                FOR i = 10 TO 12
-                    IF dist(peg(i).x, peg(i).y, _MOUSEX, _MOUSEY) <= 40 AND peg(i).set <> emptySet$ THEN
-                        k = 0
-                        IF MID$(peg(i).set, 5, 2) <> MKI$(-1) THEN
-                            halo = 40
-                        ELSEIF MID$(peg(i).set, 3, 2) <> MKI$(-1) THEN
-                            halo = 25
-                        ELSE
-                            halo = 12
-                        END IF
-
-                        IF highLit <> i THEN
-                            highLit = i
-                            glow = 10
-                            glowStep = .1
-                        END IF
-
-                        IF glowStep = 0 THEN glowStep = .1
-                        glow = glow + glowStep
-                        IF glow < 8 THEN glow = 8: glowStep = glowStep * -1
-                        IF glow > 20 THEN glow = 20: glowStep = glowStep * -1
-
-                        FOR j = glow TO 8 STEP -.5
-                            k = k + .8
-                            CircleFill peg(i).x, peg(i).y, halo + k, _RGB32(255, j)
-                            CircleFill peg(i).x, peg(i).y, (halo / 2) + k, _RGB32(0, j)
-                        NEXT
-
-                        EXIT FOR
-                    END IF
-                NEXT
             END IF
             mouseDown = false
             dragging = 0
         END IF
 
+        highlightPegs
         checkAvailableMoves
         drawRings
         doAnimations
@@ -800,6 +767,48 @@ SUB updateParticles
             ELSE
                 CircleFill particle(i).x, particle(i).y, particle(i).size, _RGB32(particle(i).r, particle(i).g, particle(i).b, map(TIMER - particle(i).start, 0, particle(i).duration, 255, 0))
             END IF
+        END IF
+    NEXT
+END SUB
+
+SUB highlightPegs
+    SHARED peg() AS object
+    SHARED emptySet$
+
+    STATIC highLit AS INTEGER, glow AS SINGLE, glowStep AS SINGLE
+    DIM halo AS INTEGER
+    DIM i AS INTEGER, k AS SINGLE, j AS SINGLE
+
+    FOR i = 10 TO 12
+        IF peg(i).set = emptySet$ THEN _CONTINUE
+        IF dist(peg(i).x, peg(i).y, _MOUSEX, _MOUSEY) <= 40 THEN
+            k = 0
+            IF MID$(peg(i).set, 5, 2) <> MKI$(-1) THEN
+                halo = 40
+            ELSEIF MID$(peg(i).set, 3, 2) <> MKI$(-1) THEN
+                halo = 25
+            ELSE
+                halo = 12
+            END IF
+
+            IF highLit <> i THEN
+                highLit = i
+                glow = 10
+                glowStep = .2
+            END IF
+
+            IF glowStep = 0 THEN glowStep = .2
+            glow = glow + glowStep
+            IF glow < 8 THEN glow = 8: glowStep = glowStep * -1
+            IF glow > 16 THEN glow = 16: glowStep = glowStep * -1
+
+            FOR j = glow TO 8 STEP -.5
+                k = k + .8
+                CircleFill peg(i).x, peg(i).y, halo + k, _RGB32(255, j)
+                CircleFill peg(i).x, peg(i).y, (halo / 2) + k, _RGB32(0, j)
+            NEXT
+
+            EXIT FOR
         END IF
     NEXT
 END SUB
