@@ -515,6 +515,16 @@ SUB doIntro
     LOOP UNTIL TIMER - introTimer > 6 OR _KEYHIT
 END SUB
 
+
+SUB drawPegs
+    SHARED peg() AS object
+
+    DIM i AS INTEGER
+    FOR i = 1 TO 9
+        CircleFill peg(i).x, peg(i).y, 3, _RGB32(255)
+    NEXT
+END SUB
+
 SUB generateNewSets
     SHARED peg() AS object
     SHARED animation() AS object
@@ -774,10 +784,13 @@ END SUB
 SUB highlightPegs
     SHARED peg() AS object
     SHARED emptySet$
+    SHARED dragging AS INTEGER
 
     STATIC highLit AS INTEGER, glow AS SINGLE, glowStep AS SINGLE
     DIM halo AS INTEGER
     DIM i AS INTEGER, k AS SINGLE, j AS SINGLE
+
+    IF dragging THEN EXIT SUB
 
     FOR i = 10 TO 12
         IF peg(i).set = emptySet$ THEN _CONTINUE
@@ -854,6 +867,34 @@ SUB checkAvailableMoves
             IF INSTR(board$, MKI$(-1)) = 0 THEN gameOver = true
         END IF
     END IF
+END SUB
+
+SUB drawRings
+    DIM i AS INTEGER
+    SHARED peg() AS object
+    SHARED circleImage() AS LONG
+    SHARED dragging AS INTEGER
+    SHARED thisColor AS INTEGER
+
+    DIM x AS SINGLE, y AS SINGLE
+    DIM j AS INTEGER
+
+    FOR i = 1 TO 12
+        IF i = dragging THEN
+            x = _MOUSEX
+            y = _MOUSEY
+        ELSE
+            x = peg(i).x
+            y = peg(i).y
+        END IF
+
+        FOR j = 1 TO 3
+            thisColor = CVI(MID$(peg(i).set, j * 2 - 1, 2))
+            IF thisColor > 0 THEN
+                _PUTIMAGE (x - (_WIDTH(circleImage(thisColor, j)) / 2), y - (_HEIGHT(circleImage(thisColor, j)) / 2)), circleImage(thisColor, j)
+            END IF
+        NEXT
+    NEXT
 END SUB
 
 SUB CircleFill (x AS LONG, y AS LONG, R AS LONG, C AS _UNSIGNED LONG)
@@ -1040,44 +1081,6 @@ SUB pause (duration AS SINGLE)
         _DISPLAY
         _LIMIT 30
     LOOP UNTIL TIMER - j > duration OR _KEYHIT
-END SUB
-
-
-SUB drawPegs
-    SHARED peg() AS object
-
-    DIM i AS INTEGER
-    FOR i = 1 TO 9
-        CircleFill peg(i).x, peg(i).y, 3, _RGB32(255)
-    NEXT
-END SUB
-
-SUB drawRings
-    DIM i AS INTEGER
-    SHARED peg() AS object
-    SHARED circleImage() AS LONG
-    SHARED dragging AS INTEGER
-    SHARED thisColor AS INTEGER
-
-    DIM x AS SINGLE, y AS SINGLE
-    DIM j AS INTEGER
-
-    FOR i = 1 TO 12
-        IF i = dragging THEN
-            x = _MOUSEX
-            y = _MOUSEY
-        ELSE
-            x = peg(i).x
-            y = peg(i).y
-        END IF
-
-        FOR j = 1 TO 3
-            thisColor = CVI(MID$(peg(i).set, j * 2 - 1, 2))
-            IF thisColor > 0 THEN
-                _PUTIMAGE (x - (_WIDTH(circleImage(thisColor, j)) / 2), y - (_HEIGHT(circleImage(thisColor, j)) / 2)), circleImage(thisColor, j)
-            END IF
-        NEXT
-    NEXT
 END SUB
 
 SUB endScreen
