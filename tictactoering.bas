@@ -71,7 +71,33 @@ _PUTIMAGE (0, 0), bg
 _BLEND
 centerLarge (_HEIGHT / 2) - fontHeightLarge(2) / 2, "This game contains bright,", 2
 centerLarge (_HEIGHT / 2) + fontHeightLarge(2) / 2, "rapidly flashing colors.", 2
-pause 2
+
+'load sounds
+j = TIMER
+DIM wooshSound AS LONG
+wooshSound = _SNDOPEN("assets/sounds/woosh.ogg")
+
+DIM woodblock AS LONG
+woodblock = _SNDOPEN("assets/sounds/woodblock.wav")
+
+DIM track(1 TO 1) AS LONG, mainTrackVolume AS SINGLE
+track(1) = _SNDOPEN("assets/music/track1.ogg")
+mainTrackVolume = 1
+IF track(1) > 0 THEN _SNDVOL track(1), mainTrackVolume
+
+DIM comboSound(1 TO 8) AS LONG, a$
+RESTORE comboSoundFiles
+FOR i = 1 TO 8
+    READ a$
+    comboSound(i) = _SNDOPEN("assets/sounds/" + a$)
+NEXT
+
+comboSoundFiles:
+DATA do.ogg,re.ogg,mi.ogg,fa.ogg,sol.ogg,la.ogg,si.ogg,do2.ogg
+
+'if loading sounds took more than 2 seconds, no need to pause
+j = TIMER - j
+IF j < 2 THEN pause 2 - j
 
 DIM thisColor AS INTEGER
 doIntro
@@ -107,6 +133,10 @@ _DEST _DISPLAY
 
 DO
     DO 'main game loop
+        IF mainTrackVolume > .5 THEN
+            mainTrackVolume = mainTrackVolume - .05
+            IF track(1) > 0 THEN _SNDVOL track(1), mainTrackVolume
+        END IF
         'redraw board
         _DONTBLEND
         _PUTIMAGE (0, 0), bg
@@ -168,6 +198,7 @@ DO
                                 END IF
                             NEXT
                             IF placed THEN
+                                IF woodblock > 0 THEN _SNDPLAYCOPY woodblock
                                 FOR j = 1 TO 3
                                     IF CVI(MID$(peg(dragging).set, j * 2 - 1, 2)) > 0 THEN
                                         MID$(peg(i).set, j * 2 - 1, 2) = MID$(peg(dragging).set, j * 2 - 1, 2)
@@ -292,7 +323,20 @@ DO
                     NEXT
 
                     IF previousScore < score THEN
+                        IF wooshSound > 0 THEN _SNDPLAYCOPY wooshSound
+
                         multiplier = multiplier + 1
+
+                        IF multiplier - 1 <= UBOUND(combosound) THEN
+                            IF comboSound(multiplier - 1) > 0 THEN
+                                _SNDPLAYCOPY comboSound(multiplier - 1)
+                            END IF
+                        ELSE
+                            IF comboSound(UBOUND(combosound)) > 0 THEN
+                                _SNDPLAYCOPY comboSound(UBOUND(combosound))
+                            END IF
+                        END IF
+
                         DIM m$(1 TO 2)
                         m$(1) = megaComboMsg$(_CEIL(RND * UBOUND(megaComboMsg$)))
                         m$(2) = LTRIM$(STR$(multiplier)) + "x combo!"
@@ -456,6 +500,7 @@ SUB doIntro
     SHARED thisColor AS INTEGER
     SHARED c() AS _UNSIGNED LONG
     SHARED circleImage() AS LONG
+    SHARED track() AS LONG
     SHARED bg AS LONG
 
     DIM x AS SINGLE, y AS SINGLE, j AS INTEGER
@@ -473,6 +518,7 @@ SUB doIntro
 
     DIM introTimer AS SINGLE
     introTimer = TIMER
+    IF track(1) > 0 THEN _SNDLOOP track(1)
     DO
         _DONTBLEND
         _PUTIMAGE (0, 0), bg
@@ -747,10 +793,11 @@ SUB updateScore
     STATIC lastScoreUpdate AS SINGLE, lastHighScoreUpdate AS SINGLE
     SHARED visibleScore AS _UNSIGNED LONG, score AS _UNSIGNED LONG
     SHARED visibleHighScore AS _UNSIGNED LONG, highscore AS _UNSIGNED LONG
-    SHARED animation() AS object
+    SHARED animation() AS object, woodblock AS LONG
 
     IF visibleScore < score AND TIMER - lastScoreUpdate > .05 AND animation(8).start = 0 THEN
         visibleScore = visibleScore + 1
+        IF woodblock > 0 THEN _SNDPLAYCOPY woodblock
         lastScoreUpdate = TIMER
     END IF
 
@@ -1123,6 +1170,12 @@ SUB endScreen
         k = 3
         printLarge (_WIDTH - printWidthLarge(m$(2), k)) / 2, _HEIGHT - fontHeightLarge(k) * 2, m$(2), k
         DO
+            SHARED mainTrackVolume AS SINGLE, track() AS LONG
+            IF mainTrackVolume < 1 THEN
+                mainTrackVolume = mainTrackVolume + .05
+                IF track(1) > 0 THEN _SNDVOL track(1), mainTrackVolume
+            END IF
+
             keyb = _KEYHIT
             userQuit = _EXIT
             _DISPLAY
@@ -1132,6 +1185,7 @@ SUB endScreen
         IF (gameOver AND (keyb = -110 OR keyb = -78)) OR userQuit THEN SYSTEM
 
         IF (gameOver AND (keyb = -13 OR keyb = -121 OR keyb = -89)) OR (gameOver = false AND (keyb = -110 OR keyb = -78)) THEN
+            IF track(1) > 0 THEN _SNDSTOP track(1): _SNDLOOP track(1) 'restart main track
             gameOver = false
             score = 0
             visibleScore = 0
