@@ -1373,6 +1373,9 @@ SUB settingsScreen
                 SELECT CASE thisButton
                     CASE 1
                         music = NOT music
+                        SHARED track() AS LONG
+                        IF track(1) > 0 AND music THEN _SNDLOOP track(1)
+                        IF track(1) > 0 AND music = false THEN _SNDSTOP track(1)
                     CASE 2
                         sfx = NOT sfx
                     CASE 3
