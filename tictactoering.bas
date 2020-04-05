@@ -58,10 +58,6 @@ setRingColors
 DIM circleImage(1 TO i, 1 TO 3) AS LONG
 generateRingImages
 
-'set window icon
-RANDOMIZE TIMER
-_ICON circleImage(_CEIL(RND * UBOUND(c)), 3)
-
 DIM crownIcon AS LONG
 generateCrownIcon
 
@@ -117,6 +113,8 @@ IF j < 2 THEN pause 2 - j
 
 DIM thisColor AS INTEGER
 doIntro
+
+RANDOMIZE TIMER
 
 'add divs to bg
 bgWithoutShelf = _COPYIMAGE(bg)
