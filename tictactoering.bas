@@ -31,7 +31,7 @@ DIM canvas AS LONG
 canvas = _NEWIMAGE(600, 600, 32)
 
 SCREEN canvas
-DO UNTIL _SCREENEXISTS: _LIMIT 15: LOOP
+_DELAY .1
 _SCREENMOVE _MIDDLE
 _TITLE "Tic Tac Toe Ring"
 _PRINTMODE _KEEPBACKGROUND
@@ -130,7 +130,7 @@ DIM score AS _UNSIGNED LONG, visibleScore AS _UNSIGNED LONG
 DIM highscore AS _UNSIGNED LONG, visibleHighScore AS _UNSIGNED LONG
 DIM level AS _UNSIGNED LONG, maxColors AS INTEGER
 DIM animation(0 TO 8) AS object, gameOver AS _BYTE
-DIM particle(5000) AS object
+DIM particle(5000) AS object, pauseGame AS _BYTE
 
 animation(0).duration = .25 'board flash
 FOR i = 1 TO 5
@@ -171,8 +171,8 @@ DO
 
         'print osd
         DIM enterSettings AS _BYTE
-        createSettingsButton
-        IF ABS(keyb) <> 27 AND enterSettings = false THEN doButtons
+        createMainScreenButtons
+        IF ABS(keyb) <> 27 AND pauseGame = false AND enterSettings = false THEN doButtons
 
         _PUTIMAGE (25, 28), crownIcon
         COLOR _RGB32(200)
@@ -188,7 +188,7 @@ DO
         drawPegs
         generateNewSets
 
-        IF ABS(keyb) <> 27 AND enterSettings = false THEN checkButtons
+        IF ABS(keyb) <> 27 AND pauseGame = false AND enterSettings = false THEN checkButtons
 
         DIM prevbt AS INTEGER
         IF currentButton <> prevbt THEN
@@ -217,6 +217,11 @@ DO
                 IF dragging = 0 THEN
                     IF enterSettings = false AND currentButton = 1 THEN
                         enterSettings = true
+                        _CONTINUE
+                    END IF
+
+                    IF pauseGame = false AND currentButton = 2 THEN 'pause
+                        pauseGame = true
                         _CONTINUE
                     END IF
                 END IF
@@ -415,6 +420,13 @@ DO
             enterSettings = false
         END IF
 
+        IF pauseGame THEN
+            addParticles _MOUSEX, _MOUSEY, 30, _RGB32(255)
+            addParticles _MOUSEX, _MOUSEY, 30, _RGB32(67, 172, 183)
+            keyb = -27
+            pauseGame = false
+        END IF
+
         'limit fps
         _LIMIT 60
 
@@ -605,9 +617,10 @@ SUB doIntro
         LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGB32(255, map(TIMER - introTimer, 4, 5, 0, 255)), BF
         LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGB32(0, map(TIMER - introTimer, 5, 6, 0, 255)), BF
 
+        WHILE _MOUSEINPUT: WEND
         _DISPLAY
         _LIMIT 60
-    LOOP UNTIL TIMER - introTimer > 6 OR _KEYHIT
+    LOOP UNTIL TIMER - introTimer > 6 OR _KEYHIT OR _MOUSEBUTTON(1)
 END SUB
 
 
@@ -1245,17 +1258,17 @@ SUB endScreen
             IF TIMER - animation(0).start < .3 THEN
                 LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGB32(255, map(TIMER - animation(0).start, 0, .3, 0, 255)), BF
             END IF
+            updateParticles
             _DISPLAY
             _LIMIT 60
         LOOP UNTIL TIMER - animation(0).start > .75
 
-        IF gameOver THEN m$(1) = "Game Over" ELSE m$(1) = ""
-        IF gameOver THEN m$(2) = "Restart?" ELSE m$(2) = "Continue?"
-        COLOR _RGB32(255)
-        k = 4
-        printLarge (_WIDTH - printWidthLarge(m$(1), k)) / 2, _HEIGHT - fontHeightLarge(k) * 2.5, m$(1), k
-        k = 3
-        printLarge (_WIDTH - printWidthLarge(m$(2), k)) / 2, _HEIGHT - fontHeightLarge(k) * 2, m$(2), k
+        IF gameOver THEN
+            m$(1) = "Game Over"
+            COLOR _RGB32(255)
+            k = 4
+            printLarge (_WIDTH - printWidthLarge(m$(1), k)) / 2, _HEIGHT - fontHeightLarge(k) * 2.5, m$(1), k
+        END IF
 
         screenshot2 = _COPYIMAGE(_DISPLAY)
 
@@ -1264,23 +1277,28 @@ SUB endScreen
         SHARED totalButtons AS INTEGER
         SHARED button() AS object, caption() AS STRING
 
-        currentButton = 1
+        currentButton = 0
         totalButtons = 2
         FOR i = 1 TO 2
             button(i).h = _FONTHEIGHT + 10
-            button(i).w = _PRINTWIDTH("  WIDTH  ")
+            button(i).w = _PRINTWIDTH("  Continue  ")
         NEXT
 
         DIM startX AS INTEGER
         startX = (_WIDTH - button(1).w * totalButtons) / 2
         FOR i = 1 TO totalButtons
-            button(i).y = _HEIGHT - fontHeightLarge(3)
+            button(i).y = _HEIGHT - fontHeightLarge(3) * 2
             button(i).x = startX
             startX = startX + button(i).w
         NEXT
 
-        caption(1) = "Yes"
-        caption(2) = "No"
+        IF gameOver THEN
+            caption(1) = "Restart"
+            caption(2) = "Quit"
+        ELSE
+            caption(1) = "Continue"
+            caption(2) = "Restart"
+        END IF
 
         DO
             SHARED mainTrackVolume AS SINGLE, track() AS LONG, music AS _BYTE
@@ -1562,7 +1580,7 @@ SUB settingsScreen
     currentButton = 0
 END SUB
 
-SUB createSettingsButton
+SUB createMainScreenButtons
     SHARED totalButtons AS INTEGER
     SHARED caption() AS STRING
     SHARED button() AS object
@@ -1572,8 +1590,14 @@ SUB createSettingsButton
     caption(1) = "Settings"
     button(1).h = _FONTHEIGHT + 10
     button(1).w = _PRINTWIDTH(caption(1) + "    ")
-    button(1).y = 0
-    button(1).x = _WIDTH - button(1).w
+    button(1).y = _HEIGHT - button(1).h - 1
+    button(1).x = _WIDTH - button(1).w - 1
+
+    'caption(2) = CHR$(221) + CHR$(222)
+    'button(2).h = _FONTHEIGHT + 10
+    'button(2).w = _PRINTWIDTH(caption(2) + "    ")
+    'button(2).y = 0
+    'button(2).x = button(1).x - button(2).w
 END SUB
 
 SUB doButtons
