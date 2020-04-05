@@ -28,6 +28,15 @@ status=original
 license=Attribution 3.0 Unported (CC BY 3.0)
 licenselink=https://creativecommons.org/licenses/by/3.0/
 
+[sound-4]
+file=select.ogg
+id=Game Sound Selection.wav
+author=Bertrof
+source=https://freesound.org/people/Bertrof/sounds/131658/#
+status=original
+license=Attribution 3.0 Unported (CC BY 3.0)
+licenselink=https://creativecommons.org/licenses/by/3.0/
+
 ; Music
 [track-1]
 file=track1.ogg

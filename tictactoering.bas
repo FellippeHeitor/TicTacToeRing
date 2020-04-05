@@ -85,8 +85,13 @@ loadGame
 
 'load sounds
 j = TIMER
+DIM selectSound AS LONG
+selectSound = _SNDOPEN("assets/sounds/select.ogg")
+IF selectSound > 0 THEN _SNDVOL selectSound, .3
+
 DIM wooshSound AS LONG
 wooshSound = _SNDOPEN("assets/sounds/woosh.ogg")
+IF wooshSound > 0 THEN _SNDVOL wooshSound, .5
 
 DIM woodblock AS LONG
 woodblock = _SNDOPEN("assets/sounds/woodblock.wav")
@@ -187,7 +192,7 @@ DO
 
         DIM prevbt AS INTEGER
         IF currentButton <> prevbt THEN
-            IF currentButton > 0 AND sfx AND woodblock > 0 THEN _SNDPLAYCOPY woodblock
+            IF currentButton > 0 AND sfx AND selectSound > 0 THEN _SNDPLAYCOPY selectSound
             prevbt = currentButton
         END IF
 
@@ -1225,7 +1230,7 @@ SUB endScreen
 
     IF gameOver OR keyb = -27 THEN
         'flash and screenshot
-        DIM screenshot AS LONG
+        DIM screenshot AS LONG, screenshot2 AS LONG
         screenshot = _COPYIMAGE(_DISPLAY)
 
         animation(0).start = TIMER
@@ -1245,12 +1250,38 @@ SUB endScreen
         LOOP UNTIL TIMER - animation(0).start > .75
 
         IF gameOver THEN m$(1) = "Game Over" ELSE m$(1) = ""
-        IF gameOver THEN m$(2) = "Restart (Y/n)?" ELSE m$(2) = "Continue (Y/n)?"
+        IF gameOver THEN m$(2) = "Restart?" ELSE m$(2) = "Continue?"
         COLOR _RGB32(255)
         k = 4
         printLarge (_WIDTH - printWidthLarge(m$(1), k)) / 2, _HEIGHT - fontHeightLarge(k) * 2.5, m$(1), k
         k = 3
         printLarge (_WIDTH - printWidthLarge(m$(2), k)) / 2, _HEIGHT - fontHeightLarge(k) * 2, m$(2), k
+
+        screenshot2 = _COPYIMAGE(_DISPLAY)
+
+        'end screen buttons
+        SHARED currentButton AS INTEGER
+        SHARED totalButtons AS INTEGER
+        SHARED button() AS object, caption() AS STRING
+
+        currentButton = 1
+        totalButtons = 2
+        FOR i = 1 TO 2
+            button(i).h = _FONTHEIGHT + 10
+            button(i).w = _PRINTWIDTH("  WIDTH  ")
+        NEXT
+
+        DIM startX AS INTEGER
+        startX = (_WIDTH - button(1).w * totalButtons) / 2
+        FOR i = 1 TO totalButtons
+            button(i).y = _HEIGHT - fontHeightLarge(3)
+            button(i).x = startX
+            startX = startX + button(i).w
+        NEXT
+
+        caption(1) = "Yes"
+        caption(2) = "No"
+
         DO
             SHARED mainTrackVolume AS SINGLE, track() AS LONG, music AS _BYTE
             IF music THEN
@@ -1261,6 +1292,54 @@ SUB endScreen
             END IF
 
             keyb = _KEYHIT
+            WHILE _MOUSEINPUT: WEND
+            DIM mx AS INTEGER, my AS INTEGER
+            mx = _MOUSEX
+            my = _MOUSEY
+
+            _PUTIMAGE (0, 0), screenshot2
+            doButtons
+            DIM mouseDown AS _BYTE
+            checkButtons
+
+            DIM prevbt AS INTEGER
+            IF currentButton <> prevbt THEN
+                SHARED selectSound AS LONG, sfx AS _BYTE
+                IF currentButton > 0 AND sfx AND selectSound > 0 THEN _SNDPLAYCOPY selectSound
+                prevbt = currentButton
+            END IF
+
+            SELECT CASE keyb
+                CASE 19200 'left
+                    currentButton = 1
+                CASE 19712 'right
+                    currentButton = 2
+                CASE -13
+                    mouseDown = true
+                CASE -27
+                    EXIT DO
+            END SELECT
+
+            IF _MOUSEBUTTON(1) THEN
+                mouseDown = true
+            ELSE
+                IF mouseDown THEN
+                    SELECT CASE currentButton
+                        CASE 1
+                            keyb = -121
+                            EXIT DO
+                        CASE 2
+                            keyb = -110
+                            EXIT DO
+                    END SELECT
+                    addParticles mx, my, 30, _RGB32(255)
+                    addParticles mx, my, 30, _RGB32(122, 89, 144)
+                END IF
+                mouseDown = false
+            END IF
+
+            updateParticles
+
             userQuit = _EXIT
             _DISPLAY
             _LIMIT 30
@@ -1297,6 +1376,9 @@ SUB endScreen
         END IF
 
         _FREEIMAGE screenshot
+        _FREEIMAGE screenshot2
+        _KEYCLEAR
+        currentButton = 0
     END IF
 END SUB
 
@@ -1391,8 +1473,8 @@ SUB settingsScreen
 
         DIM prevbt AS INTEGER
         IF currentButton <> prevbt THEN
-            SHARED woodblock AS LONG
-            IF currentButton > 0 AND sfx AND woodblock > 0 THEN _SNDPLAYCOPY woodblock
+            SHARED selectSound AS LONG
+            IF currentButton > 0 AND sfx AND selectSound > 0 THEN _SNDPLAYCOPY selectSound
             prevbt = currentButton
         END IF
 
