@@ -148,6 +148,13 @@ DIM currentButton AS INTEGER
 
 DO
     DO 'main game loop
+        'read mouse data
+        WHILE _MOUSEINPUT: WEND
+
+        'read keyboard
+        DIM keyb AS LONG
+        keyb = _KEYHIT
+
         IF mainTrackVolume > .5 AND music THEN
             mainTrackVolume = mainTrackVolume - .05
             IF track(1) > 0 THEN _SNDVOL track(1), mainTrackVolume
@@ -158,8 +165,9 @@ DO
         _BLEND
 
         'print osd
+        DIM enterSettings AS _BYTE
         createSettingsButton
-        doButtons
+        IF ABS(keyb) <> 27 AND enterSettings = false THEN doButtons
 
         _PUTIMAGE (25, 28), crownIcon
         COLOR _RGB32(200)
@@ -175,12 +183,13 @@ DO
         drawPegs
         generateNewSets
 
-        'read mouse data
-        WHILE _MOUSEINPUT: WEND
+        IF ABS(keyb) <> 27 AND enterSettings = false THEN checkButtons
 
-        'read keyboard
-        DIM keyb AS LONG
-        keyb = _KEYHIT
+        DIM prevbt AS INTEGER
+        IF currentButton <> prevbt THEN
+            IF currentButton > 0 AND sfx AND woodblock > 0 THEN _SNDPLAYCOPY woodblock
+            prevbt = currentButton
+        END IF
 
         IF _MOUSEBUTTON(1) THEN
             'drag?
@@ -201,11 +210,9 @@ DO
         ELSE
             IF mouseDown THEN
                 IF dragging = 0 THEN
-                    DIM thisButton AS INTEGER
-                    thisButton = checkButtons
-                    DIM enterSettings AS _BYTE
-                    IF thisButton = 1 THEN
+                    IF enterSettings = false AND currentButton = 1 THEN
                         enterSettings = true
+                        _CONTINUE
                     END IF
                 END IF
 
@@ -392,7 +399,6 @@ DO
         doAnimations
         updateScore
         updateParticles
-        thisButton = checkButtons 'here the call to checkButtons serves just for the hover highlight
 
         'update display
         _DISPLAY
@@ -1333,6 +1339,7 @@ SUB settingsScreen
     'settings buttons
     SHARED music AS _BYTE, sfx AS _BYTE
     DIM i AS INTEGER
+    currentButton = 0
     totalButtons = 4
     FOR i = 1 TO totalButtons - 1
         button(i).h = _FONTHEIGHT + 10
@@ -1359,7 +1366,10 @@ SUB settingsScreen
         _PUTIMAGE (0, 0), bgWithoutShelf
         _PUTIMAGE (0, (_HEIGHT - screenshotSize) / 2)-STEP(screenshotSize, screenshotSize), screenshot
 
+        DIM mx AS INTEGER, my AS INTEGER
         WHILE _MOUSEINPUT: WEND
+        mx = _MOUSEX
+        my = _MOUSEY
         keyb = _KEYHIT
         userQuit = _EXIT
 
@@ -1376,14 +1386,42 @@ SUB settingsScreen
         END IF
 
         doButtons
-        DIM thisButton AS INTEGER, mouseDown AS _BYTE
-        thisButton = checkButtons
+        DIM mouseDown AS _BYTE
+        checkButtons
+
+        DIM prevbt AS INTEGER
+        IF currentButton <> prevbt THEN
+            SHARED woodblock AS LONG
+            IF currentButton > 0 AND sfx AND woodblock > 0 THEN _SNDPLAYCOPY woodblock
+            prevbt = currentButton
+        END IF
+
+        SELECT CASE keyb
+            CASE 18432 'up
+                currentButton = currentButton - 1
+                IF currentButton < 1 THEN currentButton = 1
+            CASE 20480 'down
+                currentButton = currentButton + 1
+                IF currentButton > totalButtons THEN currentButton = totalButtons
+            CASE 19200 'left
+                IF currentButton < 4 THEN currentButton = 4
+            CASE 19712 'right
+                IF currentButton = 4 THEN currentButton = 1
+            CASE -13
+                mouseDown = true
+                IF currentButton > 0 THEN
+                    mx = button(currentButton).x + button(currentButton).w / 2
+                    my = button(currentButton).y + button(currentButton).h / 2
+                END IF
+            CASE -27
+                EXIT DO
+        END SELECT
 
         IF _MOUSEBUTTON(1) THEN
             mouseDown = true
         ELSE
             IF mouseDown THEN
-                SELECT CASE thisButton
+                SELECT CASE currentButton
                     CASE 1
                         music = NOT music
                         SHARED track() AS LONG
@@ -1396,8 +1434,8 @@ SUB settingsScreen
                     CASE 3, 4
                         EXIT DO
                 END SELECT
-                addParticles _MOUSEX, _MOUSEY, 30, _RGB32(255)
-                addParticles _MOUSEX, _MOUSEY, 30, _RGB32(67, 172, 183)
+                addParticles mx, my, 30, _RGB32(255)
+                addParticles mx, my, 30, _RGB32(67, 172, 183)
             END IF
             mouseDown = false
         END IF
@@ -1438,7 +1476,8 @@ SUB settingsScreen
     LOOP UNTIL TIMER - animation(0).start > .5
 
     _FREEIMAGE screenshot
-    EXIT SUB
+    _KEYCLEAR
+    currentButton = 0
 END SUB
 
 SUB createSettingsButton
@@ -1453,33 +1492,47 @@ SUB createSettingsButton
     button(1).w = _PRINTWIDTH(caption(1) + "    ")
     button(1).y = 0
     button(1).x = _WIDTH - button(1).w
-    currentButton = 0
 END SUB
 
 SUB doButtons
     SHARED totalButtons AS INTEGER
     SHARED caption() AS STRING
     SHARED button() AS object
+    SHARED currentButton AS INTEGER
     DIM i AS INTEGER
 
-    COLOR _RGB32(255)
     FOR i = 1 TO totalButtons
         LINE (button(i).x, button(i).y)-STEP(button(i).w, button(i).h), _RGB32(255), B
+        IF i = currentButton THEN
+            LINE (button(currentButton).x, button(currentButton).y)-STEP(button(currentButton).w, button(currentButton).h), _RGB32(255, 80), BF
+            COLOR _RGB32(0)
+            DIM shadowDepth AS INTEGER
+            shadowDepth = 2
+            _PRINTSTRING (button(i).x + (button(i).w - _PRINTWIDTH(caption(i))) / 2 + shadowDepth, button(i).y + button(i).h / 2 - _FONTHEIGHT / 2 + shadowDepth), caption(i)
+        END IF
+        COLOR _RGB32(255)
         _PRINTSTRING (button(i).x + (button(i).w - _PRINTWIDTH(caption(i))) / 2, button(i).y + button(i).h / 2 - _FONTHEIGHT / 2), caption(i)
     NEXT
 END SUB
 
-FUNCTION checkButtons
+SUB checkButtons
     SHARED totalButtons AS INTEGER
     SHARED caption() AS STRING
     SHARED button() AS object
+    SHARED currentButton AS INTEGER
     DIM i AS INTEGER
+    STATIC lastMouseX AS INTEGER, lastMouseY AS INTEGER
 
-    FOR i = 1 TO totalButtons
-        IF _MOUSEX > button(i).x AND _MOUSEX < button(i).x + button(i).w AND _MOUSEY > button(i).y AND _MOUSEY < button(i).y + button(i).h THEN
-            LINE (button(i).x, button(i).y)-STEP(button(i).w, button(i).h), _RGB32(255, 80), BF
-            checkButtons = i
-            EXIT FOR
-        END IF
-    NEXT
-END FUNCTION
+    IF _MOUSEX <> lastMouseX OR _MOUSEY <> lastMouseY THEN
+        lastMouseX = _MOUSEX
+        lastMouseY = _MOUSEY
+
+        currentButton = 0
+        FOR i = 1 TO totalButtons
+            IF _MOUSEX > button(i).x AND _MOUSEX < button(i).x + button(i).w AND _MOUSEY > button(i).y AND _MOUSEY < button(i).y + button(i).h THEN
+                currentButton = i
+                EXIT FOR
+            END IF
+        NEXT
+    END IF
+END SUB
