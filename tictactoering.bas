@@ -1333,8 +1333,8 @@ SUB settingsScreen
     'settings buttons
     SHARED music AS _BYTE, sfx AS _BYTE
     DIM i AS INTEGER
-    totalButtons = 3
-    FOR i = 1 TO totalButtons
+    totalButtons = 4
+    FOR i = 1 TO totalButtons - 1
         button(i).h = _FONTHEIGHT + 10
         button(i).w = _PRINTWIDTH("  ENOUGH WIDTH FOR ALL CHOICES  ")
     NEXT
@@ -1342,12 +1342,17 @@ SUB settingsScreen
     caption(3) = "Return to game"
 
     DIM startY AS INTEGER
-    startY = (_HEIGHT - button(1).h * totalButtons) / 2
-    FOR i = 1 TO totalButtons
+    startY = (_HEIGHT - button(1).h * totalButtons - 1) / 2
+    FOR i = 1 TO totalButtons - 1
         button(i).y = startY
         button(i).x = _WIDTH - _WIDTH / 3 - button(i).w / 2
         startY = startY + button(i).h
     NEXT
+
+    button(4).x = 0
+    button(4).y = (_HEIGHT - screenshotSize) / 2
+    button(4).w = screenshotSize
+    button(4).h = screenshotSize
 
     DO
         CLS
@@ -1388,7 +1393,7 @@ SUB settingsScreen
                         sfx = NOT sfx
                         SHARED wooshSound AS LONG
                         IF wooshSound > 0 AND sfx THEN _SNDPLAYCOPY wooshSound
-                    CASE 3
+                    CASE 3, 4
                         EXIT DO
                 END SELECT
                 addParticles _MOUSEX, _MOUSEY, 30, _RGB32(255)
@@ -1459,7 +1464,7 @@ SUB doButtons
 
     COLOR _RGB32(255)
     FOR i = 1 TO totalButtons
-        LINE (button(i).x, button(i).y)-STEP(button(i).w - 1, button(i).h - 1), _RGB32(255), B
+        LINE (button(i).x, button(i).y)-STEP(button(i).w, button(i).h), _RGB32(255), B
         _PRINTSTRING (button(i).x + (button(i).w - _PRINTWIDTH(caption(i))) / 2, button(i).y + button(i).h / 2 - _FONTHEIGHT / 2), caption(i)
     NEXT
 END SUB
@@ -1472,7 +1477,7 @@ FUNCTION checkButtons
 
     FOR i = 1 TO totalButtons
         IF _MOUSEX > button(i).x AND _MOUSEX < button(i).x + button(i).w AND _MOUSEY > button(i).y AND _MOUSEY < button(i).y + button(i).h THEN
-            LINE (button(i).x, button(i).y)-STEP(button(i).w - 1, button(i).h - 1), _RGB32(255, 80), BF
+            LINE (button(i).x, button(i).y)-STEP(button(i).w, button(i).h), _RGB32(255, 80), BF
             checkButtons = i
             EXIT FOR
         END IF
