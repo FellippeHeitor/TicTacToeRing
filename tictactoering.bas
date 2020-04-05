@@ -1,5 +1,16 @@
 OPTION _EXPLICIT
 
+$EXEICON:'./assets/images/tttr.ico'
+
+$VERSIONINFO:FILEVERSION#=1,0,0,0
+$VERSIONINFO:PRODUCTVERSION#=1,0,0,0
+$VERSIONINFO:CompanyName=Fellippe Heitor
+$VERSIONINFO:ProductName=Tic Tac Toe Ring
+$VERSIONINFO:ProductVersion=1.0
+$VERSIONINFO:Comments=Based on 'Rings.' by Gamezaur; Created with QB64.
+$VERSIONINFO:Web=https://github.com/FellippeHeitor/TicTacToeRing
+$VERSIONINFO:InternalName=tictactoering.bas
+
 CONST true = -1, false = 0
 
 'Required shared variables for printLarge
