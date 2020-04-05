@@ -19,6 +19,9 @@ TYPE object
     start AS SINGLE
     duration AS SINGLE
     state AS _BYTE
+    text AS INTEGER
+    w AS INTEGER
+    h AS INTEGER
     r AS INTEGER
     g AS INTEGER
     b AS INTEGER
@@ -61,7 +64,7 @@ DIM crownIcon AS LONG
 generateCrownIcon
 
 _DEST _DISPLAY
-DIM bg AS LONG
+DIM bg AS LONG, bgWithoutShelf AS LONG
 generateBG
 
 'flash warning
@@ -71,6 +74,12 @@ _PUTIMAGE (0, 0), bg
 _BLEND
 centerLarge (_HEIGHT / 2) - fontHeightLarge(2) / 2, "This game contains bright,", 2
 centerLarge (_HEIGHT / 2) + fontHeightLarge(2) / 2, "rapidly flashing colors.", 2
+
+DIM music AS _BYTE, sfx AS _BYTE
+music = true
+sfx = true
+
+loadGame
 
 'load sounds
 j = TIMER
@@ -103,6 +112,7 @@ DIM thisColor AS INTEGER
 doIntro
 
 'add divs to bg
+bgWithoutShelf = _COPYIMAGE(bg)
 _DEST bg
 LINE (_WIDTH / 2 - (_WIDTH / spacing) * 2, _HEIGHT / 2 - (_HEIGHT / spacing) * 2)-STEP(_WIDTH / spacing * 4, _HEIGHT / spacing * 4), _RGB32(0, 50), BF
 LINE (3 + peg(10).x - (_WIDTH / spacing / 2), 3 + peg(10).y - (_WIDTH / spacing / 2))-(3 + peg(12).x + (_WIDTH / spacing / 2), 3 + peg(12).y + (_WIDTH / spacing / 2)), _RGB32(255, 15), BF
@@ -125,15 +135,18 @@ animation(7).duration = 1 'combo info
 DIM multiplier AS INTEGER
 multiplier = 1
 
-loadGame
-
 visibleScore = score
 visibleHighScore = highscore
 _DEST _DISPLAY
 
+DIM button(100) AS object
+DIM caption(100) AS STRING
+DIM totalButtons AS INTEGER
+DIM currentButton AS INTEGER
+
 DO
     DO 'main game loop
-        IF mainTrackVolume > .5 THEN
+        IF mainTrackVolume > .5 AND music THEN
             mainTrackVolume = mainTrackVolume - .05
             IF track(1) > 0 THEN _SNDVOL track(1), mainTrackVolume
         END IF
@@ -143,6 +156,9 @@ DO
         _BLEND
 
         'print osd
+        createSettingsButton
+        doButtons
+
         _PUTIMAGE (25, 28), crownIcon
         COLOR _RGB32(200)
         _PRINTSTRING (52, 28), STR$(visibleHighScore)
@@ -182,6 +198,13 @@ DO
             END IF
         ELSE
             IF mouseDown THEN
+                IF dragging = 0 THEN
+                    DIM thisButton AS INTEGER
+                    thisButton = checkButtons
+                    DIM enterSettings AS _BYTE
+                    IF thisButton = 1 THEN enterSettings = true
+                END IF
+
                 'place rings
                 DIM placed AS _BYTE
                 placed = false
@@ -198,7 +221,7 @@ DO
                                 END IF
                             NEXT
                             IF placed THEN
-                                IF woodblock > 0 THEN _SNDPLAYCOPY woodblock
+                                IF woodblock > 0 AND sfx THEN _SNDPLAYCOPY woodblock
                                 FOR j = 1 TO 3
                                     IF CVI(MID$(peg(dragging).set, j * 2 - 1, 2)) > 0 THEN
                                         MID$(peg(i).set, j * 2 - 1, 2) = MID$(peg(dragging).set, j * 2 - 1, 2)
@@ -323,17 +346,19 @@ DO
                     NEXT
 
                     IF previousScore < score THEN
-                        IF wooshSound > 0 THEN _SNDPLAYCOPY wooshSound
+                        IF wooshSound > 0 AND sfx THEN _SNDPLAYCOPY wooshSound
 
                         multiplier = multiplier + 1
 
-                        IF multiplier - 1 <= UBOUND(combosound) THEN
-                            IF comboSound(multiplier - 1) > 0 THEN
-                                _SNDPLAYCOPY comboSound(multiplier - 1)
-                            END IF
-                        ELSE
-                            IF comboSound(UBOUND(combosound)) > 0 THEN
-                                _SNDPLAYCOPY comboSound(UBOUND(combosound))
+                        IF sfx THEN
+                            IF multiplier - 1 <= UBOUND(combosound) THEN
+                                IF comboSound(multiplier - 1) > 0 THEN
+                                    _SNDPLAYCOPY comboSound(multiplier - 1)
+                                END IF
+                            ELSE
+                                IF comboSound(UBOUND(combosound)) > 0 THEN
+                                    _SNDPLAYCOPY comboSound(UBOUND(combosound))
+                                END IF
                             END IF
                         END IF
 
@@ -357,15 +382,21 @@ DO
             dragging = 0
         END IF
 
-        highlightPegs
+        hoverHighlight
         checkAvailableMoves
         drawRings
         doAnimations
         updateScore
         updateParticles
+        thisButton = checkButtons 'here the call to checkButtons serves just for the hover highlight
 
         'update display
         _DISPLAY
+
+        IF enterSettings THEN
+            settingsScreen
+            enterSettings = false
+        END IF
 
         'limit fps
         _LIMIT 60
@@ -502,6 +533,7 @@ SUB doIntro
     SHARED circleImage() AS LONG
     SHARED track() AS LONG
     SHARED bg AS LONG
+    SHARED music AS _BYTE
 
     DIM x AS SINGLE, y AS SINGLE, j AS INTEGER
     DIM introRings(1 TO 30) AS object
@@ -518,7 +550,7 @@ SUB doIntro
 
     DIM introTimer AS SINGLE
     introTimer = TIMER
-    IF track(1) > 0 THEN _SNDLOOP track(1)
+    IF track(1) > 0 AND music THEN _SNDLOOP track(1)
     DO
         _DONTBLEND
         _PUTIMAGE (0, 0), bg
@@ -721,11 +753,17 @@ SUB saveGame
     SHARED level AS _UNSIGNED LONG
     SHARED gameOver AS _BYTE
     SHARED peg() AS object
+    SHARED music AS _BYTE, sfx AS _BYTE
 
     DIM i AS INTEGER
 
-    OPEN "tictactoering.score" FOR BINARY AS #1
-    PUT #1, 1, score
+    OPEN "tictactoering.dat" FOR BINARY AS #1
+    DIM signature AS STRING
+    signature = "tttring"
+    PUT #1, 1, signature
+    PUT #1, , music
+    PUT #1, , sfx
+    PUT #1, , score
     PUT #1, , highscore
     PUT #1, , level
     PUT #1, , gameOver
@@ -740,12 +778,22 @@ SUB loadGame
     SHARED level AS _UNSIGNED LONG
     SHARED gameOver AS _BYTE
     SHARED peg() AS object
+    SHARED music AS _BYTE, sfx AS _BYTE
 
     DIM i AS INTEGER
 
-    OPEN "tictactoering.score" FOR BINARY AS #1
+    OPEN "tictactoering.dat" FOR BINARY AS #1
     IF LOF(1) THEN
-        GET #1, 1, score
+        DIM signature AS STRING
+        signature = SPACE$(7)
+        GET #1, 1, signature
+        IF signature <> "tttring" THEN
+            CLOSE #1
+            EXIT SUB
+        END IF
+        GET #1, , music
+        GET #1, , sfx
+        GET #1, , score
         GET #1, , highscore
         GET #1, , level
         GET #1, , gameOver
@@ -758,6 +806,31 @@ SUB loadGame
             gameOver = false
             score = 0
             level = 0
+        END IF
+    ELSE
+        'user just upgraded from first versions?
+        'retrieve their highscore and kill old file
+        CLOSE #1
+        IF _FILEEXISTS("tictactoering.score") THEN
+            OPEN "tictactoering.score" FOR BINARY AS #1
+            IF LOF(1) THEN
+                GET #1, 1, score
+                GET #1, , highscore
+                GET #1, , level
+                GET #1, , gameOver
+
+                IF gameOver = false THEN
+                    FOR i = 1 TO 12
+                        GET #1, , peg(i)
+                    NEXT
+                ELSE
+                    gameOver = false
+                    score = 0
+                    level = 0
+                END IF
+            END IF
+            CLOSE #1
+            KILL "tictactoering.score"
         END IF
     END IF
     CLOSE #1
@@ -794,10 +867,11 @@ SUB updateScore
     SHARED visibleScore AS _UNSIGNED LONG, score AS _UNSIGNED LONG
     SHARED visibleHighScore AS _UNSIGNED LONG, highscore AS _UNSIGNED LONG
     SHARED animation() AS object, woodblock AS LONG
+    SHARED sfx AS _BYTE
 
     IF visibleScore < score AND TIMER - lastScoreUpdate > .05 AND animation(8).start = 0 THEN
         visibleScore = visibleScore + 1
-        IF woodblock > 0 THEN _SNDPLAYCOPY woodblock
+        IF woodblock > 0 AND sfx THEN _SNDPLAYCOPY woodblock
         lastScoreUpdate = TIMER
     END IF
 
@@ -828,7 +902,7 @@ SUB updateParticles
     NEXT
 END SUB
 
-SUB highlightPegs
+SUB hoverHighlight
     SHARED peg() AS object
     SHARED emptySet$
     SHARED dragging AS INTEGER
@@ -981,10 +1055,6 @@ FUNCTION dist! (x1!, y1!, x2!, y2!)
     dist! = _HYPOT((x2! - x1!), (y2! - y1!))
 END FUNCTION
 
-FUNCTION distB! (v1 AS object, v2 AS object)
-    distB! = dist!(v1.x, v1.y, v2.x, v2.y)
-END FUNCTION
-
 SUB printLarge (x AS SINGLE, y AS SINGLE, text$, fontSize AS INTEGER)
     DIM i AS LONG, j AS LONG, c AS LONG, char AS _UNSIGNED _BYTE
 
@@ -1133,7 +1203,7 @@ END SUB
 SUB endScreen
     SHARED gameOver AS _BYTE, keyb AS LONG
     SHARED animation() AS object, peg() AS object
-    SHARED bg AS LONG
+    SHARED bg AS LONG, bgWithoutShelf AS LONG
     SHARED m$(), emptySet$
     SHARED userQuit AS _BYTE
     SHARED score AS _UNSIGNED LONG, visibleScore AS _UNSIGNED LONG
@@ -1153,7 +1223,7 @@ SUB endScreen
             screenshotSize = map(TIMER - animation(0).start, 0, .5, _WIDTH, _WIDTH - zoomOut)
             IF screenshotSize < _WIDTH - zoomOut THEN screenshotSize = _WIDTH - zoomOut
             CLS
-            _PUTIMAGE (0, 0), bg
+            _PUTIMAGE (0, 0), bgWithoutShelf
             _PUTIMAGE ((_WIDTH - screenshotSize) / 2, 0)-STEP(screenshotSize, screenshotSize), screenshot
             IF TIMER - animation(0).start < .3 THEN
                 LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGB32(255, map(TIMER - animation(0).start, 0, .3, 0, 255)), BF
@@ -1170,10 +1240,12 @@ SUB endScreen
         k = 3
         printLarge (_WIDTH - printWidthLarge(m$(2), k)) / 2, _HEIGHT - fontHeightLarge(k) * 2, m$(2), k
         DO
-            SHARED mainTrackVolume AS SINGLE, track() AS LONG
-            IF mainTrackVolume < 1 THEN
-                mainTrackVolume = mainTrackVolume + .05
-                IF track(1) > 0 THEN _SNDVOL track(1), mainTrackVolume
+            SHARED mainTrackVolume AS SINGLE, track() AS LONG, music AS _BYTE
+            IF music THEN
+                IF mainTrackVolume < 1 THEN
+                    mainTrackVolume = mainTrackVolume + .05
+                    IF track(1) > 0 THEN _SNDVOL track(1), mainTrackVolume
+                END IF
             END IF
 
             keyb = _KEYHIT
@@ -1185,7 +1257,7 @@ SUB endScreen
         IF (gameOver AND (keyb = -110 OR keyb = -78)) OR userQuit THEN SYSTEM
 
         IF (gameOver AND (keyb = -13 OR keyb = -121 OR keyb = -89)) OR (gameOver = false AND (keyb = -110 OR keyb = -78)) THEN
-            IF track(1) > 0 THEN _SNDSTOP track(1): _SNDLOOP track(1) 'restart main track
+            IF track(1) > 0 AND music THEN _SNDSTOP track(1): _SNDLOOP track(1) 'restart main track
             gameOver = false
             score = 0
             visibleScore = 0
@@ -1202,7 +1274,7 @@ SUB endScreen
                 screenshotSize = map(TIMER - animation(0).start, 0, .5, _WIDTH - zoomOut, _WIDTH)
                 IF screenshotSize > _WIDTH THEN screenshotSize = _WIDTH
                 CLS
-                _PUTIMAGE (0, 0), bg
+                _PUTIMAGE (0, 0), bgWithoutShelf
                 _PUTIMAGE ((_WIDTH - screenshotSize) / 2, 0)-STEP(screenshotSize, screenshotSize), screenshot
                 IF TIMER - animation(0).start <= .3 THEN
                     LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGB32(255, map(TIMER - animation(0).start, 0, .3, 0, 255)), BF
@@ -1215,3 +1287,166 @@ SUB endScreen
         _FREEIMAGE screenshot
     END IF
 END SUB
+
+SUB settingsScreen
+    SHARED gameOver AS _BYTE, keyb AS LONG
+    SHARED animation() AS object, peg() AS object
+    SHARED bg AS LONG, bgWithoutShelf AS LONG
+    SHARED m$(), emptySet$
+    SHARED userQuit AS _BYTE
+    SHARED score AS _UNSIGNED LONG, visibleScore AS _UNSIGNED LONG
+    SHARED level AS _UNSIGNED LONG
+
+    'flash and screenshot
+    DIM screenshot AS LONG
+    screenshot = _COPYIMAGE(_DISPLAY)
+
+    animation(0).start = TIMER
+    DO
+        DIM screenshotSize AS INTEGER, zoomOut AS INTEGER
+        zoomOut = 400
+        screenshotSize = map(TIMER - animation(0).start, 0, .5, _WIDTH, _WIDTH - zoomOut)
+        IF screenshotSize < _WIDTH - zoomOut THEN screenshotSize = _WIDTH - zoomOut
+        CLS
+        _PUTIMAGE (0, 0), bgWithoutShelf
+        _PUTIMAGE (0, (_HEIGHT - screenshotSize) / 2)-STEP(screenshotSize, screenshotSize), screenshot
+        IF TIMER - animation(0).start < .3 THEN
+            LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGB32(255, map(TIMER - animation(0).start, 0, .3, 0, 255)), BF
+        END IF
+        _DISPLAY
+        _LIMIT 60
+    LOOP UNTIL TIMER - animation(0).start > .75
+
+    SHARED button() AS object
+    SHARED caption() AS STRING
+    SHARED totalButtons AS INTEGER
+    SHARED currentButton AS INTEGER
+
+    'settings buttons
+    SHARED music AS _BYTE, sfx AS _BYTE
+    DIM i AS INTEGER
+    totalButtons = 3
+    FOR i = 1 TO totalButtons
+        button(i).h = _FONTHEIGHT + 10
+        button(i).w = _PRINTWIDTH("  ENOUGH WIDTH FOR ALL CHOICES  ")
+    NEXT
+
+    caption(3) = "Return to game"
+
+    DIM startY AS INTEGER
+    startY = (_HEIGHT - button(1).h * totalButtons) / 2
+    FOR i = 1 TO totalButtons
+        button(i).y = startY
+        button(i).x = _WIDTH - _WIDTH / 3 - button(i).w / 2
+        startY = startY + button(i).h
+    NEXT
+
+    DO
+        CLS
+        _PUTIMAGE (0, 0), bgWithoutShelf
+        _PUTIMAGE (0, (_HEIGHT - screenshotSize) / 2)-STEP(screenshotSize, screenshotSize), screenshot
+
+        WHILE _MOUSEINPUT: WEND
+        keyb = _KEYHIT
+        userQuit = _EXIT
+
+        IF music THEN
+            caption(1) = "Music: ON"
+        ELSE
+            caption(1) = "Music: OFF"
+        END IF
+
+        IF sfx THEN
+            caption(2) = "Sound effects: ON"
+        ELSE
+            caption(2) = "Sound effects: OFF"
+        END IF
+
+        doButtons
+        DIM thisButton AS INTEGER, mouseDown AS _BYTE
+        thisButton = checkButtons
+
+        IF _MOUSEBUTTON(1) THEN
+            mouseDown = true
+        ELSE
+            IF mouseDown THEN
+                SELECT CASE thisButton
+                    CASE 1
+                        music = NOT music
+                    CASE 2
+                        sfx = NOT sfx
+                    CASE 3
+                        EXIT DO
+                END SELECT
+            END IF
+            mouseDown = false
+        END IF
+
+        _DISPLAY
+        _LIMIT 30
+    LOOP UNTIL userQuit
+
+    IF (gameOver AND (keyb = -110 OR keyb = -78)) OR userQuit THEN SYSTEM
+
+    'bring screenshot back to front
+    animation(0).start = TIMER
+    DO
+        zoomOut = 200
+        screenshotSize = map(TIMER - animation(0).start, 0, .5, _WIDTH - zoomOut, _WIDTH)
+        IF screenshotSize > _WIDTH THEN screenshotSize = _WIDTH
+        CLS
+        _PUTIMAGE (0, 0), bgWithoutShelf
+        _PUTIMAGE (0, 0)-STEP(screenshotSize, screenshotSize), screenshot
+        IF TIMER - animation(0).start <= .3 THEN
+            LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGB32(255, map(TIMER - animation(0).start, 0, .3, 0, 255)), BF
+        END IF
+        _DISPLAY
+        _LIMIT 60
+    LOOP UNTIL TIMER - animation(0).start > .5
+
+    _FREEIMAGE screenshot
+    EXIT SUB
+END SUB
+
+SUB createSettingsButton
+    SHARED totalButtons AS INTEGER
+    SHARED caption() AS STRING
+    SHARED button() AS object
+    SHARED currentButton AS INTEGER
+
+    totalButtons = 1
+    caption(1) = "Settings"
+    button(1).h = _FONTHEIGHT + 10
+    button(1).w = _PRINTWIDTH(caption(1) + "    ")
+    button(1).y = 0
+    button(1).x = _WIDTH - button(1).w
+    currentButton = 0
+END SUB
+
+SUB doButtons
+    SHARED totalButtons AS INTEGER
+    SHARED caption() AS STRING
+    SHARED button() AS object
+    DIM i AS INTEGER
+
+    COLOR _RGB32(255)
+    FOR i = 1 TO totalButtons
+        LINE (button(i).x, button(i).y)-STEP(button(i).w - 1, button(i).h - 1), _RGB32(255), B
+        _PRINTSTRING (button(i).x + (button(i).w - _PRINTWIDTH(caption(i))) / 2, button(i).y + button(i).h / 2 - _FONTHEIGHT / 2), caption(i)
+    NEXT
+END SUB
+
+FUNCTION checkButtons
+    SHARED totalButtons AS INTEGER
+    SHARED caption() AS STRING
+    SHARED button() AS object
+    DIM i AS INTEGER
+
+    FOR i = 1 TO totalButtons
+        IF _MOUSEX > button(i).x AND _MOUSEX < button(i).x + button(i).w AND _MOUSEY > button(i).y AND _MOUSEY < button(i).y + button(i).h THEN
+            LINE (button(i).x, button(i).y)-STEP(button(i).w - 1, button(i).h - 1), _RGB32(255, 80), BF
+            checkButtons = i
+            EXIT FOR
+        END IF
+    NEXT
+END FUNCTION
