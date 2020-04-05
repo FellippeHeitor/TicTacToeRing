@@ -202,7 +202,9 @@ DO
                     DIM thisButton AS INTEGER
                     thisButton = checkButtons
                     DIM enterSettings AS _BYTE
-                    IF thisButton = 1 THEN enterSettings = true
+                    IF thisButton = 1 THEN
+                        enterSettings = true
+                    END IF
                 END IF
 
                 'place rings
@@ -394,6 +396,8 @@ DO
         _DISPLAY
 
         IF enterSettings THEN
+            addParticles _MOUSEX, _MOUSEY, 30, _RGB32(255)
+            addParticles _MOUSEX, _MOUSEY, 30, _RGB32(67, 172, 183)
             settingsScreen
             enterSettings = false
         END IF
@@ -1313,6 +1317,8 @@ SUB settingsScreen
         IF TIMER - animation(0).start < .3 THEN
             LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGB32(255, map(TIMER - animation(0).start, 0, .3, 0, 255)), BF
         END IF
+
+        updateParticles
         _DISPLAY
         _LIMIT 60
     LOOP UNTIL TIMER - animation(0).start > .75
@@ -1378,12 +1384,29 @@ SUB settingsScreen
                         IF track(1) > 0 AND music = false THEN _SNDSTOP track(1)
                     CASE 2
                         sfx = NOT sfx
+                        SHARED wooshSound AS LONG
+                        IF wooshSound > 0 AND sfx THEN _SNDPLAYCOPY wooshSound
                     CASE 3
                         EXIT DO
                 END SELECT
+                addParticles _MOUSEX, _MOUSEY, 30, _RGB32(255)
+                addParticles _MOUSEX, _MOUSEY, 30, _RGB32(67, 172, 183)
             END IF
             mouseDown = false
         END IF
+
+        'game title
+        COLOR _RGB32(0)
+        centerLarge (_HEIGHT / 7) + 3, "Settings", 4
+        centerLarge (_HEIGHT - _HEIGHT / 4) - fontHeightLarge(2) + 3, "Tic Tac Toe", 2
+        centerLarge (_HEIGHT - _HEIGHT / 4) + 3, "Rings", 7
+
+        COLOR _RGB32(255)
+        centerLarge (_HEIGHT / 7), "Settings", 4
+        centerLarge (_HEIGHT - _HEIGHT / 4) - fontHeightLarge(2), "Tic Tac Toe", 2
+        centerLarge (_HEIGHT - _HEIGHT / 4), "Rings", 7
+
+        updateParticles
 
         _DISPLAY
         _LIMIT 30
