@@ -1399,7 +1399,7 @@ SUB settingsScreen
         IF screenshotSize > _WIDTH THEN screenshotSize = _WIDTH
         CLS
         _PUTIMAGE (0, 0), bgWithoutShelf
-        _PUTIMAGE (0, 0)-STEP(screenshotSize, screenshotSize), screenshot
+        _PUTIMAGE (0, (_HEIGHT - screenshotSize) / 2)-STEP(screenshotSize, screenshotSize), screenshot
         IF TIMER - animation(0).start <= .3 THEN
             LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGB32(255, map(TIMER - animation(0).start, 0, .3, 0, 255)), BF
         END IF
