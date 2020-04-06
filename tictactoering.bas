@@ -63,7 +63,7 @@ setPegs
 DIM megaComboMsg$(1 TO 6)
 setComboMessages
 
-DIM c(8) AS _UNSIGNED LONG
+DIM c(10) AS _UNSIGNED LONG
 setRingColors
 
 DIM circleImage(1 TO i, 1 TO 3) AS LONG
@@ -498,6 +498,8 @@ SUB setRingColors
     i = i + 1: c(i) = _RGB32(222, 105, 161) 'pink
     i = i + 1: c(i) = _RGB32(139, 11, 205) 'purple
     i = i + 1: c(i) = _RGB32(55, 211, 211) 'cyan
+    i = i + 1: c(i) = _RGB32(255, 255, 255) 'white
+    i = i + 1: c(i) = _RGB32(100, 100, 100) 'dark gray
 END SUB
 
 SUB generateRingImages
@@ -656,7 +658,7 @@ SUB generateNewSets
     'current board's available positions
     IF peg(10).set + peg(11).set + peg(12).set = emptySet$ + emptySet$ + emptySet$ THEN
         level = level + 1
-        maxColors = map(level, 1, 30, 3, UBOUND(c)) 'as level goes up, add more colors
+        maxColors = map(level, 1, 45, 3, UBOUND(c)) 'as level goes up, add more colors
         IF maxColors < 3 THEN maxColors = 3
         IF maxColors > UBOUND(c) THEN maxColors = UBOUND(c)
 
@@ -757,7 +759,7 @@ SUB doAnimations
                     k = INT(map(animSize, 50, 40, 1, 4))
                     IF k < 1 THEN k = 1
                     IF k > 4 THEN k = 4
-                    COLOR _RGB32(0.80)
+                    COLOR _RGB32(0, 80)
                     FOR l = -4 TO 4 STEP 8
                         IF totalMatches > 1 THEN
                             printLarge (l + _WIDTH - printWidthLarge(m$(1), k)) / 2, (l + _HEIGHT - fontHeightLarge(k)) / 2 - fontHeightLarge(k), m$(1), k
