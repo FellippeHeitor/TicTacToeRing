@@ -658,7 +658,7 @@ SUB generateNewSets
     'current board's available positions
     IF peg(10).set + peg(11).set + peg(12).set = emptySet$ + emptySet$ + emptySet$ THEN
         level = level + 1
-        maxColors = map(level, 1, 45, 3, UBOUND(c)) 'as level goes up, add more colors
+        maxColors = map(level, 1, 60, 3, UBOUND(c)) 'as level goes up, add more colors
         IF maxColors < 3 THEN maxColors = 3
         IF maxColors > UBOUND(c) THEN maxColors = UBOUND(c)
 
