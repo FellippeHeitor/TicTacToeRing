@@ -2,16 +2,27 @@ OPTION _EXPLICIT
 
 $EXEICON:'./assets/images/tttr.ico'
 
-$VERSIONINFO:FILEVERSION#=1,0,0,0
-$VERSIONINFO:PRODUCTVERSION#=1,0,0,0
+$VERSIONINFO:FILEVERSION#=1,1,0,0
+$VERSIONINFO:PRODUCTVERSION#=1,1,0,0
 $VERSIONINFO:CompanyName=Fellippe Heitor
 $VERSIONINFO:ProductName=Tic Tac Toe Ring
-$VERSIONINFO:ProductVersion=1.0
+$VERSIONINFO:ProductVersion=1.1
 $VERSIONINFO:Comments=Based on 'Rings.' by Gamezaur; Created with QB64.
 $VERSIONINFO:Web=https://github.com/FellippeHeitor/TicTacToeRing
 $VERSIONINFO:InternalName=tictactoering.bas
 
 CONST true = -1, false = 0
+
+'online scoreboard code
+DIM SHARED auth AS STRING, host AS STRING, getboardpath AS STRING
+DIM SHARED updateboardpath AS STRING, timelimit AS INTEGER, maxHighScores AS INTEGER
+auth = CHR$(52) + CHR$(50) + CHR$(51) + CHR$(49) + CHR$(52)
+host = CHR$(119) + CHR$(119) + CHR$(119) + CHR$(46) + CHR$(113) + CHR$(98) + CHR$(54) + CHR$(52) + CHR$(46) + CHR$(111) + CHR$(114) + CHR$(103)
+getboardpath = CHR$(47) + CHR$(116) + CHR$(116) + CHR$(116) + CHR$(114) + CHR$(105) + CHR$(110) + CHR$(103) + CHR$(47) + CHR$(103) + CHR$(101) + CHR$(116) + CHR$(98) + CHR$(111) + CHR$(97) + CHR$(114) + CHR$(100) + CHR$(46) + CHR$(112) + CHR$(104) + CHR$(112)
+updateboardpath = CHR$(47) + CHR$(116) + CHR$(116) + CHR$(116) + CHR$(114) + CHR$(105) + CHR$(110) + CHR$(103) + CHR$(47) + CHR$(117) + CHR$(112) + CHR$(100) + CHR$(97) + CHR$(116) + CHR$(101) + CHR$(98) + CHR$(111) + CHR$(97) + CHR$(114) + CHR$(100) + CHR$(46) + CHR$(112) + CHR$(104) + CHR$(112)
+timelimit = 10
+maxHighScores = 10
+
 
 'Required shared variables for printLarge
 DIM SHARED charSet(255, 1 TO 16, 1 TO 8) AS _BYTE
@@ -135,6 +146,10 @@ LINE (3 + peg(10).x - (_WIDTH / spacing / 2), 3 + peg(10).y - (_WIDTH / spacing 
 LINE (peg(10).x - (_WIDTH / spacing / 2), peg(10).y - (_WIDTH / spacing / 2))-(peg(12).x + (_WIDTH / spacing / 2), peg(12).y + (_WIDTH / spacing / 2)), _RGB32(255, 15), BF
 
 'game
+CONST MODE_NORMAL = 0
+CONST MODE_EASIER = 1
+
+DIM mode AS INTEGER
 DIM score AS _UNSIGNED LONG, visibleScore AS _UNSIGNED LONG
 DIM highscore AS _UNSIGNED LONG, visibleHighScore AS _UNSIGNED LONG
 DIM level AS _UNSIGNED LONG, maxColors AS INTEGER
@@ -160,7 +175,45 @@ DIM caption(100) AS STRING
 DIM totalButtons AS INTEGER
 DIM currentButton AS INTEGER
 
+DIM highScore(maxHighScores) AS newHighScore
+DIM totalHS AS INTEGER
+
 DO
+    'read highscores
+    DIM board$
+    board$ = downloadBoard
+
+    DIM filename$
+    IF mode = 0 THEN filename$ = "highscores.dat"
+    IF mode = 1 THEN filename$ = "highscores_easier.dat"
+
+    IF LEN(board$) > 0 THEN 'WRITES THAT TO THE FILE
+        OPEN filename$ FOR OUTPUT AS #1
+        PRINT #1, board$
+        CLOSE #1
+    END IF
+
+    TYPE newHighScore
+        player AS STRING * 8
+        score AS _UNSIGNED LONG
+    END TYPE
+
+    IF _FILEEXISTS(filename$) THEN
+        highscore = 0
+        OPEN filename$ FOR INPUT AS #1
+        FOR i = 1 TO maxHighScores
+            IF EOF(1) THEN EXIT FOR
+            INPUT #1, highScore(i).player
+            INPUT #1, highScore(i).score
+            IF highScore(i).score > highscore THEN highscore = highScore(i).score
+            totalHS = i
+        NEXT
+        CLOSE #1
+    END IF
+
+    visibleHighScore = highscore
+    addParticles _WIDTH / 2, _HEIGHT / 2, 5000, _RGB32(255)
+
     DO 'main game loop
         'read mouse data
         WHILE _MOUSEINPUT: WEND
@@ -425,8 +478,23 @@ DO
         IF enterSettings THEN
             addParticles _MOUSEX, _MOUSEY, 30, _RGB32(255)
             addParticles _MOUSEX, _MOUSEY, 30, _RGB32(67, 172, 183)
+            DIM currentMode AS INTEGER
+            currentMode = mode
             settingsScreen
             enterSettings = false
+            IF currentMode <> mode THEN
+                'restart game if mode changes
+                IF track(1) > 0 AND music THEN _SNDSTOP track(1): _SNDLOOP track(1) 'restart main track
+                gameOver = false
+                score = 0
+                visibleScore = 0
+                level = 0
+                animation(0).start = TIMER
+                FOR i = 1 TO 12
+                    peg(i).set = emptySet$
+                NEXT
+                GOTO outerLoop
+            END IF
         END IF
 
         IF pauseGame THEN
@@ -435,6 +503,8 @@ DO
             keyb = -27
             pauseGame = false
         END IF
+
+        IF keyb = ASC("q") AND _KEYDOWN(100306) THEN gameOver = true
 
         'limit fps
         _LIMIT 60
@@ -449,7 +519,7 @@ DO
     IF userQuit THEN SYSTEM
 
     endScreen
-
+    outerLoop:
 LOOP
 
 SUB setPegs
@@ -650,6 +720,8 @@ SUB generateNewSets
     SHARED c() AS _UNSIGNED LONG
     SHARED emptySet$
     SHARED level AS _UNSIGNED LONG, maxColors AS INTEGER
+    SHARED score AS _UNSIGNED LONG
+    SHARED mode AS INTEGER
 
     DIM i AS INTEGER
     DIM j AS INTEGER
@@ -658,7 +730,11 @@ SUB generateNewSets
     'current board's available positions
     IF peg(10).set + peg(11).set + peg(12).set = emptySet$ + emptySet$ + emptySet$ THEN
         level = level + 1
-        maxColors = map(level, 1, 60, 3, UBOUND(c)) 'as level goes up, add more colors
+        IF mode = MODE_NORMAL THEN
+            maxColors = map(level, 1, 45, 3, UBOUND(c)) 'as level goes up, add more colors
+        ELSEIF mode = MODE_EASIER THEN
+            maxColors = map(score, 1, 500, 3, UBOUND(c)) 'as score goes up, add more colors
+        END IF
         IF maxColors < 3 THEN maxColors = 3
         IF maxColors > UBOUND(c) THEN maxColors = UBOUND(c)
 
@@ -795,9 +871,11 @@ SUB saveGame
     SHARED gameOver AS _BYTE
     SHARED peg() AS object
     SHARED music AS _BYTE, sfx AS _BYTE
+    SHARED mode AS INTEGER
 
     DIM i AS INTEGER
 
+    IF _FILEEXISTS("tictactoering.dat") THEN KILL "tictactoering.dat"
     OPEN "tictactoering.dat" FOR BINARY AS #1
     DIM signature AS STRING
     signature = "tttring"
@@ -808,9 +886,27 @@ SUB saveGame
     PUT #1, , highscore
     PUT #1, , level
     PUT #1, , gameOver
-    FOR i = 1 TO 12
-        PUT #1, , peg(i)
-    NEXT
+    IF gameOver = false THEN
+        FOR i = 1 TO 12
+            PUT #1, , peg(i)
+        NEXT
+        PUT #1, , mode
+    ELSE
+        PUT #1, , mode
+    END IF
+    CLOSE #1
+
+    'save crc
+    OPEN "tictactoering.dat" FOR BINARY AS #1
+    DIM a$
+    a$ = SPACE$(LOF(1))
+    GET #1, 1, a$
+
+    DIM crctest AS STRING, l%
+    crctest = _DEFLATE$(LTRIM$(STR$(crc32(a$))))
+    l% = LEN(crctest)
+    PUT #1, , l%
+    PUT #1, , crctest
     CLOSE #1
 END SUB
 
@@ -820,6 +916,7 @@ SUB loadGame
     SHARED gameOver AS _BYTE
     SHARED peg() AS object
     SHARED music AS _BYTE, sfx AS _BYTE
+    SHARED mode AS INTEGER
 
     DIM i AS INTEGER
 
@@ -843,39 +940,102 @@ SUB loadGame
             FOR i = 1 TO 12
                 GET #1, , peg(i)
             NEXT
+            GET #1, , mode
         ELSE
+            GET #1, , mode
             gameOver = false
             score = 0
             level = 0
         END IF
-    ELSE
-        'user just upgraded from first versions?
-        'retrieve their highscore and kill old file
-        CLOSE #1
-        IF _FILEEXISTS("tictactoering.score") THEN
-            OPEN "tictactoering.score" FOR BINARY AS #1
-            IF LOF(1) THEN
-                GET #1, 1, score
-                GET #1, , highscore
-                GET #1, , level
-                GET #1, , gameOver
 
-                IF gameOver = false THEN
-                    FOR i = 1 TO 12
-                        GET #1, , peg(i)
-                    NEXT
-                ELSE
-                    gameOver = false
-                    score = 0
-                    level = 0
-                END IF
-            END IF
-            CLOSE #1
-            KILL "tictactoering.score"
+        'test crc
+        DIM l%
+        GET #1, , l%
+        CLOSE #1
+
+        OPEN "tictactoering.dat" FOR BINARY AS #1
+        DIM a$
+        a$ = SPACE$(LOF(1))
+        GET #1, 1, a$
+        CLOSE #1
+
+        DIM crctest AS STRING
+        crctest = _DEFLATE$(LTRIM$(STR$(crc32(LEFT$(a$, LEN(a$) - (l% + 2))))))
+        IF crctest <> RIGHT$(a$, l%) THEN
+            'crc failed - data file has been tampered with
+            KILL "tictactoering.dat"
+            music = true
+            sfx = true
+            score = 0
+            highscore = 0
+            level = 0
+            gameOver = true
+            FOR i = 1 TO 12
+                peg(i).set = peg(0).set
+            NEXT
+            EXIT SUB
         END IF
+
+        'ELSE
+        '    'user just upgraded from first versions?
+        '    'retrieve their highscore and kill old file
+        '    CLOSE #1
+        '    IF _FILEEXISTS("tictactoering.score") THEN
+        '        OPEN "tictactoering.score" FOR BINARY AS #1
+        '        IF LOF(1) THEN
+        '            GET #1, 1, score
+        '            GET #1, , highscore
+        '            GET #1, , level
+        '            GET #1, , gameOver
+
+        '            IF gameOver = false THEN
+        '                FOR i = 1 TO 12
+        '                    GET #1, , peg(i)
+        '                NEXT
+        '            ELSE
+        '                gameOver = false
+        '                score = 0
+        '                level = 0
+        '            END IF
+        '        END IF
+        '        CLOSE #1
+        '        KILL "tictactoering.score"
+        '    END IF
     END IF
     CLOSE #1
 END SUB
+
+FUNCTION crc32~& (buf AS STRING)
+    'adapted from https://rosettacode.org/wiki/CRC-32
+    STATIC table(255) AS _UNSIGNED LONG
+    STATIC have_table AS _BYTE
+    DIM crc AS _UNSIGNED LONG, k AS _UNSIGNED LONG
+    DIM i AS LONG, j AS LONG
+
+    IF have_table = 0 THEN
+        FOR i = 0 TO 255
+            k = i
+            FOR j = 0 TO 7
+                IF (k AND 1) THEN
+                    k = _SHR(k, 1)
+                    k = k XOR &HEDB88320
+                ELSE
+                    k = _SHR(k, 1)
+                END IF
+                table(i) = k
+            NEXT
+        NEXT
+        have_table = -1
+    END IF
+
+    crc = NOT crc ' crc = &Hffffffff
+
+    FOR i = 1 TO LEN(buf)
+        crc = (_SHR(crc, 8)) XOR table((crc AND &HFF) XOR ASC(buf, i))
+    NEXT
+
+    crc32~& = NOT crc
+END FUNCTION
 
 SUB addParticles (x AS SINGLE, y AS SINGLE, total AS INTEGER, c AS _UNSIGNED LONG)
     DIM addedP AS INTEGER, p AS INTEGER
@@ -1248,7 +1408,9 @@ SUB endScreen
     SHARED m$(), emptySet$
     SHARED userQuit AS _BYTE
     SHARED score AS _UNSIGNED LONG, visibleScore AS _UNSIGNED LONG
+    SHARED highscore AS _UNSIGNED LONG
     SHARED level AS _UNSIGNED LONG
+    SHARED mode AS INTEGER
 
     DIM k AS INTEGER, i AS INTEGER
 
@@ -1260,7 +1422,7 @@ SUB endScreen
         animation(0).start = TIMER
         DO
             DIM screenshotSize AS INTEGER, zoomOut AS INTEGER
-            zoomOut = 200
+            zoomOut = 450
             screenshotSize = map(TIMER - animation(0).start, 0, .5, _WIDTH, _WIDTH - zoomOut)
             IF screenshotSize < _WIDTH - zoomOut THEN screenshotSize = _WIDTH - zoomOut
             CLS
@@ -1279,6 +1441,170 @@ SUB endScreen
             COLOR _RGB32(255)
             k = 4
             printLarge (_WIDTH - printWidthLarge(m$(1), k)) / 2, _HEIGHT - fontHeightLarge(k) * 2.5, m$(1), k
+
+            screenshot2 = _COPYIMAGE(_DISPLAY)
+
+            LOCATE 13, 25
+            PRINT "Connecting to server..."
+            _DISPLAY
+
+            'highscores
+            DIM board$
+            board$ = downloadBoard
+
+            _PUTIMAGE (0, 0), screenshot2
+            _FREEIMAGE screenshot2
+
+            DIM filename$
+            IF mode = 0 THEN filename$ = "highscores.dat"
+            IF mode = 1 THEN filename$ = "highscores_easier.dat"
+
+            IF LEN(board$) > 0 THEN 'WRITES THAT TO THE FILE
+                OPEN filename$ FOR OUTPUT AS #1
+                PRINT #1, board$
+                CLOSE #1
+            END IF
+
+            DIM highScore(maxHighScores) AS newHighScore
+            DIM totalHS AS INTEGER, insertAt AS LONG
+
+            IF _FILEEXISTS(filename$) THEN
+                OPEN filename$ FOR INPUT AS #1
+                FOR i = 1 TO maxHighScores
+                    IF EOF(1) THEN EXIT FOR
+                    INPUT #1, highScore(i).player
+                    INPUT #1, highScore(i).score
+                    IF highScore(i).score > highscore THEN highscore = highScore(i).score
+                    totalHS = i
+                NEXT
+                CLOSE #1
+            END IF
+
+            saveGame
+
+            IF score > 0 AND (totalHS < maxHighScores OR (totalHS > 0 AND score > highScore(totalHS).score)) THEN
+                _KEYCLEAR
+                LOCATE 13, 25
+                PRINT "You made it to the scoreboard!"
+
+                'insert new score into table
+                IF totalHS = 0 THEN
+                    totalHS = 1
+                    insertAt = 1
+                    highScore(insertAt).score = score
+                ELSE
+                    IF totalHS < maxHighScores THEN
+                        FOR i = totalHS TO 1 STEP -1
+                            IF score > highScore(i).score THEN
+                                insertAt = i
+                            END IF
+                        NEXT
+
+                        totalHS = totalHS + 1
+                        IF insertAt = 0 THEN
+                            insertAt = totalHS
+                            highScore(totalHS).score = score
+                        ELSE
+                            FOR i = totalHS - 1 TO insertAt STEP -1
+                                highScore(i + 1) = highScore(i)
+                            NEXT
+                            highScore(insertAt).score = score
+                        END IF
+                    ELSEIF totalHS = maxHighScores THEN
+                        FOR i = totalHS TO 1 STEP -1
+                            IF score > highScore(i).score THEN
+                                insertAt = i
+                            END IF
+                        NEXT
+
+                        FOR i = totalHS - 1 TO insertAt STEP -1
+                            highScore(i + 1) = highScore(i)
+                        NEXT
+                        highScore(insertAt).score = score
+                    END IF
+                END IF
+
+                highScore(insertAt).player = ""
+
+                LOCATE 15, 25
+                PRINT "******** HIGH  SCORES ********"
+                FOR i = 1 TO totalHS
+                    LOCATE 16 + i, 30
+                    PRINT highScore(i).player, highScore(i).score
+                NEXT
+
+                screenshot2 = _COPYIMAGE(_DISPLAY)
+                DIM temp$, blink AS INTEGER
+                DO 'custom input loop
+                    _PUTIMAGE (0, 0), screenshot2
+
+                    DIM fireworksX AS INTEGER, fireworksY AS INTEGER
+                    DIM shootFireworks AS INTEGER
+                    IF shootFireworks = 0 THEN
+                        fireworksX = RND * _WIDTH
+                        fireworksY = RND * _HEIGHT
+                        addParticles fireworksX, fireworksY, 60, _RGB32(255)
+                        addParticles fireworksX, fireworksY, 120, _RGB32(RND * 255, RND * 255, RND * 255)
+                    END IF
+                    shootFireworks = (shootFireworks + 1) MOD 120
+
+                    updateParticles
+
+                    LOCATE 16 + insertAt, 30
+                    PRINT temp$;
+                    blink = (blink + 1) MOD 60
+                    IF blink <= 30 THEN PRINT "_";
+
+                    keyb = _KEYHIT
+                    SELECT CASE keyb
+                        CASE 8
+                            IF LEN(temp$) > 0 THEN temp$ = LEFT$(temp$, LEN(temp$) - 1)
+                        CASE 13
+                            EXIT DO
+                        CASE 27
+                            temp$ = "PLAYER"
+                            EXIT DO
+                        CASE 65 TO 90, 97 TO 122, 48 TO 57
+                            IF LEN(temp$) < 8 THEN temp$ = temp$ + UCASE$(CHR$(keyb))
+                    END SELECT
+
+                    _DISPLAY
+                    _LIMIT 60
+                    IF _EXIT THEN SYSTEM
+                LOOP
+                _PUTIMAGE (0, 0), screenshot2
+                LOCATE 16 + insertAt, 30
+                PRINT temp$;
+                _FREEIMAGE screenshot2
+                highScore(insertAt).player = temp$
+                _KEYCLEAR
+
+                OPEN filename$ FOR OUTPUT AS #1
+                board$ = ""
+                FOR i = 1 TO totalHS
+                    WRITE #1, highScore(i).player, highScore(i).score,
+                    'build the new score line for upload
+                    board$ = board$ + CHR$(34) + RTRIM$(highScore(i).player) + CHR$(34) + "," + LTRIM$(STR$(highScore(i).score))
+                    IF i < totalHS THEN board$ = board$ + ","
+                NEXT
+                CLOSE #1
+
+                screenshot2 = _COPYIMAGE(_DISPLAY)
+
+                LOCATE 27, 25
+                PRINT "Updating scoreboard..."
+                _DISPLAY
+                uploadBoard board$
+                _PUTIMAGE (0, 0), screenshot2
+                _FREEIMAGE screenshot2
+            ELSE
+                LOCATE 15, 25
+                PRINT "******** HIGH  SCORES ********"
+                FOR i = 1 TO totalHS
+                    LOCATE 16 + i, 30
+                    PRINT highScore(i).player, highScore(i).score
+                NEXT
+            END IF
         END IF
 
         screenshot2 = _COPYIMAGE(_DISPLAY)
@@ -1311,6 +1637,7 @@ SUB endScreen
             caption(2) = "Restart"
         END IF
 
+        DO WHILE _KEYHIT <> 0 OR _KEYDOWN(13): _LIMIT 10: LOOP
         DO
             SHARED mainTrackVolume AS SINGLE, track() AS LONG, music AS _BYTE
             IF music THEN
@@ -1419,6 +1746,7 @@ SUB settingsScreen
     SHARED userQuit AS _BYTE
     SHARED score AS _UNSIGNED LONG, visibleScore AS _UNSIGNED LONG
     SHARED level AS _UNSIGNED LONG
+    SHARED mode AS INTEGER, currentMode AS INTEGER
 
     'flash and screenshot
     DIM screenshot AS LONG
@@ -1451,13 +1779,13 @@ SUB settingsScreen
     SHARED music AS _BYTE, sfx AS _BYTE
     DIM i AS INTEGER
     currentButton = 0
-    totalButtons = 4
+    totalButtons = 5
     FOR i = 1 TO totalButtons - 1
         button(i).h = _FONTHEIGHT + 10
         button(i).w = _PRINTWIDTH("  ENOUGH WIDTH FOR ALL CHOICES  ")
     NEXT
 
-    caption(3) = "Return to game"
+    caption(4) = "Return to game"
 
     DIM startY AS INTEGER
     startY = (_HEIGHT - button(1).h * totalButtons - 1) / 2
@@ -1467,10 +1795,10 @@ SUB settingsScreen
         startY = startY + button(i).h
     NEXT
 
-    button(4).x = 0
-    button(4).y = (_HEIGHT - screenshotSize) / 2
-    button(4).w = screenshotSize
-    button(4).h = screenshotSize
+    button(totalButtons).x = 0
+    button(totalButtons).y = (_HEIGHT - screenshotSize) / 2
+    button(totalButtons).w = screenshotSize
+    button(totalButtons).h = screenshotSize
 
     DO
         CLS
@@ -1484,16 +1812,23 @@ SUB settingsScreen
         keyb = _KEYHIT
         userQuit = _EXIT
 
+        SELECT CASE mode
+            CASE MODE_NORMAL
+                caption(1) = "Difficulty: NORMAL"
+            CASE MODE_EASIER
+                caption(1) = "Difficulty: EASIER"
+        END SELECT
+
         IF music THEN
-            caption(1) = "Music: ON"
+            caption(2) = "Music: ON"
         ELSE
-            caption(1) = "Music: OFF"
+            caption(2) = "Music: OFF"
         END IF
 
         IF sfx THEN
-            caption(2) = "Sound effects: ON"
+            caption(3) = "Sound effects: ON"
         ELSE
-            caption(2) = "Sound effects: OFF"
+            caption(3) = "Sound effects: OFF"
         END IF
 
         doButtons
@@ -1515,9 +1850,9 @@ SUB settingsScreen
                 currentButton = currentButton + 1
                 IF currentButton > totalButtons THEN currentButton = totalButtons
             CASE 19200 'left
-                IF currentButton < 4 THEN currentButton = 4
+                IF currentButton < totalButtons THEN currentButton = totalButtons
             CASE 19712 'right
-                IF currentButton = 4 THEN currentButton = 1
+                IF currentButton = totalButtons THEN currentButton = 1
             CASE -13
                 mouseDown = true
                 IF currentButton > 0 THEN
@@ -1534,15 +1869,18 @@ SUB settingsScreen
             IF mouseDown THEN
                 SELECT CASE currentButton
                     CASE 1
+                        mode = mode + 1
+                        IF mode > 1 THEN mode = 0
+                    CASE 2
                         music = NOT music
                         SHARED track() AS LONG
                         IF track(1) > 0 AND music THEN _SNDLOOP track(1)
                         IF track(1) > 0 AND music = false THEN _SNDSTOP track(1)
-                    CASE 2
+                    CASE 3
                         sfx = NOT sfx
                         SHARED wooshSound AS LONG
                         IF wooshSound > 0 AND sfx THEN _SNDPLAYCOPY wooshSound
-                    CASE 3, 4
+                    CASE 4, 5
                         EXIT DO
                 END SELECT
                 addParticles mx, my, 30, _RGB32(255)
@@ -1563,6 +1901,10 @@ SUB settingsScreen
         centerLarge (_HEIGHT - _HEIGHT / 4), "Rings", 7
 
         updateParticles
+
+        IF currentMode <> mode THEN
+            centerLarge _HEIGHT - fontHeightLarge(1), "Current game will be lost if you change mode", 1
+        END IF
 
         _DISPLAY
         _LIMIT 30
@@ -1653,3 +1995,72 @@ SUB checkButtons
         NEXT
     END IF
 END SUB
+
+FUNCTION downloadBoard$
+    DIM board$, randomvalue$, client AS INTEGER
+    DIM crlf$, request$, t!, a$, a2$
+    DIM p1 AS LONG, p2 AS LONG
+    SHARED mode AS INTEGER
+    STATIC disableScoreboard AS _BYTE
+
+    IF disableScoreboard THEN EXIT FUNCTION
+
+    randomvalue$ = LTRIM$(STR$(INT(RND * 1000000)))
+    client = _OPENCLIENT("TCP/IP:80:" + host)
+    IF client = 0 THEN EXIT SUB
+    crlf$ = CHR$(13) + CHR$(10)
+    request$ = "GET " + getboardpath + "?rand=" + randomvalue$ + "&mode=" + _TRIM$(STR$(mode)) + "&auth=" + auth + " HTTP/1.1" + crlf$
+    request$ = request$ + "Host: " + host + crlf$ + crlf$
+    PUT #client, , request$
+    t! = TIMER
+    DO
+        _DELAY .05
+        GET #client, , a2$
+        a$ = a$ + a2$
+        IF INSTR(a$, crlf$) THEN EXIT DO
+        IF TIMER > t! + timelimit THEN disableScoreboard = true: EXIT DO
+    LOOP
+    CLOSE client
+
+    p1 = INSTR(a$, "<p>")
+    IF p1 > 0 THEN
+        p2 = INSTR(p1 + 1, a$, "</p>")
+        IF p2 = 0 THEN EXIT SUB
+    END IF
+
+    board$ = MID$(a$, p1 + 3, p2 - p1 - 3)
+    downloadBoard$ = board$
+END SUB
+
+SUB uploadBoard (newboard$)
+    DIM result$, randomvalue$, client AS INTEGER
+    DIM crlf$, request$, t!, a$, a2$
+    DIM p1 AS LONG, p2 AS LONG
+    SHARED mode AS INTEGER
+
+    randomvalue$ = LTRIM$(STR$(INT(RND * 1000000)))
+    client = _OPENCLIENT("TCP/IP:80:" + host)
+    IF client = 0 THEN EXIT SUB
+    crlf$ = CHR$(13) + CHR$(10)
+    request$ = "GET " + updateboardpath + "?rand=" + randomvalue$ + "&mode=" + _TRIM$(STR$(mode)) + "&auth=" + auth + "&newboard=" + newboard$ + " HTTP/1.1" + crlf$
+    request$ = request$ + "Host: " + host + crlf$ + crlf$
+    PUT #client, , request$
+    t! = TIMER
+    DO
+        _DELAY .05
+        GET #client, , a2$
+        a$ = a$ + a2$
+        IF INSTR(a$, crlf$) THEN EXIT DO
+    LOOP UNTIL TIMER > t! + timelimit
+    CLOSE client
+
+    p1 = INSTR(a$, "<p>")
+    IF p1 > 0 THEN
+        p2 = INSTR(p1 + 1, a$, "</p>")
+        IF p2 = 0 THEN EXIT SUB
+    END IF
+
+    result$ = MID$(a$, p1 + 3, p2 - p1 - 3)
+    IF result$ = "success" THEN EXIT SUB
+END SUB
+
