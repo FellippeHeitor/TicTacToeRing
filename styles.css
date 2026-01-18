@@ -1,0 +1,39 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background: #000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    font-family: monospace;
+    overflow: hidden;
+}
+
+#gameCanvas {
+    border: 2px solid #333;
+    background: #000;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    cursor: pointer;
+}
+
+#loading {
+    position: absolute;
+    color: white;
+    text-align: center;
+    z-index: 1000;
+}
+
+#loading h1 {
+    font-size: 48px;
+    margin-bottom: 20px;
+}
+
+#loading.hidden {
+    display: none;
+}
