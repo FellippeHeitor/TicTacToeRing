@@ -24,6 +24,11 @@ let gameState = {
     sfx: true
 };
 
+// Settings modal state
+let showSettingsModal = false;
+let settingsButtons = [];
+let settingsModalAlpha = 0;
+
 // Ring colors (10 colors)
 const ringColors = [
     { r: 0, g: 78, b: 249 },     // blue
@@ -60,6 +65,10 @@ let mouse = {
     dragging: -1,
     clicked: false
 };
+
+// Mouse coordinates (for modal)
+let mouseX = 0;
+let mouseY = 0;
 
 // Buttons
 let buttons = [];
@@ -306,6 +315,20 @@ function drawCenteredText(text, y, size = 1, color = '#fff') {
     ctx.font = `${size * 16}px monospace`;
     const width = ctx.measureText(text).width;
     drawText(text, (canvas.width - width) / 2, y, size, color);
+}
+// Helper: rounded rectangle
+function roundRect(ctx, x, y, width, height, radius) {
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + width - radius, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+    ctx.lineTo(x + width, y + height - radius);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+    ctx.lineTo(x + radius, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
+    ctx.closePath();
 }
 
 // Draw HUD
@@ -762,6 +785,8 @@ canvas.addEventListener('mousemove', (e) => {
     const rect = canvas.getBoundingClientRect();
     mouse.x = e.clientX - rect.left;
     mouse.y = e.clientY - rect.top;
+    mouseX = mouse.x;
+    mouseY = mouse.y;
 });
 
 canvas.addEventListener('mousedown', (e) => {
@@ -780,6 +805,13 @@ canvas.addEventListener('mousedown', (e) => {
 });
 
 canvas.addEventListener('mouseup', (e) => {
+    // Check settings modal first
+    if (handleSettingsClick(mouse.x, mouse.y)) {
+        mouse.down = false;
+        mouse.dragging = -1;
+        return;
+    }
+    
     if (mouse.dragging >= 0) {
         // Try to place on board
         let placed = false;
@@ -840,21 +872,199 @@ canvas.addEventListener('mouseup', (e) => {
 function handleButtonClick(index) {
     if (index === 0) {
         // Settings
-        showSettings();
+        toggleSettings();
     } else if (index === 1) {
         // Pause
         gameState.pauseGame = !gameState.pauseGame;
-        if (gameState.pauseGame) {
-            showPauseMenu();
-        }
     }
 }
 
-// Show settings
-function showSettings() {
-    // Simple modal (simplified for now)
-    const message = `Settings\n\nMusic: ${gameState.music ? 'ON' : 'OFF'}\nSFX: ${gameState.sfx ? 'ON' : 'OFF'}\nMode: ${gameState.mode === MODE_NORMAL ? 'Normal' : 'Easier'}`;
-    alert(message);
+// Toggle settings modal
+function toggleSettings() {
+    showSettingsModal = !showSettingsModal;
+    if (showSettingsModal) {
+        createSettingsButtons();
+    }
+}
+
+// Create settings buttons
+function createSettingsButtons() {
+    const modalWidth = 500;
+    const modalHeight = 400;
+    const modalX = (canvas.width - modalWidth) / 2;
+    const modalY = (canvas.height - modalHeight) / 2;
+    
+    const buttonWidth = 200;
+    const buttonHeight = 50;
+    const startX = modalX + (modalWidth - buttonWidth) / 2;
+    let y = modalY + 100;
+    const spacing = 70;
+    
+    settingsButtons = [
+        {
+            x: startX,
+            y: y,
+            width: buttonWidth,
+            height: buttonHeight,
+            label: `♪ Música: ${gameState.music ? 'ON' : 'OFF'}`,
+            action: 'music'
+        },
+        {
+            x: startX,
+            y: y + spacing,
+            width: buttonWidth,
+            height: buttonHeight,
+            label: `🔊 Efeitos: ${gameState.sfx ? 'ON' : 'OFF'}`,
+            action: 'sfx'
+        },
+        {
+            x: startX,
+            y: y + spacing * 2,
+            width: buttonWidth,
+            height: buttonHeight,
+            label: `⚔ Modo: ${gameState.mode === MODE_NORMAL ? 'Normal' : 'Fácil'}`,
+            action: 'mode'
+        },
+        {
+            x: startX,
+            y: y + spacing * 3,
+            width: buttonWidth,
+            height: buttonHeight,
+            label: '✕ Fechar',
+            action: 'close'
+        }
+    ];
+}
+
+// Draw settings modal
+function drawSettingsModal() {
+    if (!showSettingsModal && settingsModalAlpha <= 0) return;
+    
+    // Animate alpha
+    if (showSettingsModal && settingsModalAlpha < 1) {
+        settingsModalAlpha = Math.min(1, settingsModalAlpha + 0.1);
+    } else if (!showSettingsModal && settingsModalAlpha > 0) {
+        settingsModalAlpha = Math.max(0, settingsModalAlpha - 0.1);
+    }
+    
+    // Semi-transparent overlay
+    ctx.fillStyle = `rgba(0, 0, 0, ${0.7 * settingsModalAlpha})`;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Modal dimensions
+    const modalWidth = 500;
+    const modalHeight = 400;
+    const modalX = (canvas.width - modalWidth) / 2;
+    const modalY = (canvas.height - modalHeight) / 2;
+    
+    // Modal background with gradient
+    const gradient = ctx.createLinearGradient(modalX, modalY, modalX, modalY + modalHeight);
+    gradient.addColorStop(0, `rgba(30, 30, 50, ${settingsModalAlpha})`);
+    gradient.addColorStop(1, `rgba(20, 20, 35, ${settingsModalAlpha})`);
+    
+    ctx.shadowBlur = 40 * settingsModalAlpha;
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+    roundRect(ctx, modalX, modalY, modalWidth, modalHeight, 20);
+    ctx.fillStyle = gradient;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    
+    // Modal border with glow
+    ctx.strokeStyle = `rgba(100, 150, 255, ${0.5 * settingsModalAlpha})`;
+    ctx.lineWidth = 2;
+    ctx.shadowBlur = 10 * settingsModalAlpha;
+    ctx.shadowColor = `rgba(100, 150, 255, ${settingsModalAlpha})`;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    
+    // Title
+    ctx.font = 'bold 36px Arial';
+    ctx.fillStyle = `rgba(255, 255, 255, ${settingsModalAlpha})`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.shadowBlur = 5 * settingsModalAlpha;
+    ctx.shadowColor = 'rgba(100, 150, 255, 0.8)';
+    ctx.fillText('⚙ Configurações', canvas.width / 2, modalY + 30);
+    ctx.shadowBlur = 0;
+    
+    // Draw buttons
+    settingsButtons.forEach((btn, index) => {
+        const isHovered = mouseX >= btn.x && mouseX <= btn.x + btn.width &&
+                         mouseY >= btn.y && mouseY <= btn.y + btn.height;
+        
+        // Button shadow
+        if (isHovered) {
+            ctx.shadowBlur = 20 * settingsModalAlpha;
+            ctx.shadowColor = 'rgba(100, 150, 255, 0.8)';
+        } else {
+            ctx.shadowBlur = 10 * settingsModalAlpha;
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+        }
+        
+        // Button background
+        const btnGradient = ctx.createLinearGradient(btn.x, btn.y, btn.x, btn.y + btn.height);
+        if (btn.action === 'close') {
+            btnGradient.addColorStop(0, `rgba(180, 50, 50, ${settingsModalAlpha})`);
+            btnGradient.addColorStop(1, `rgba(130, 30, 30, ${settingsModalAlpha})`);
+        } else if (isHovered) {
+            btnGradient.addColorStop(0, `rgba(80, 120, 200, ${settingsModalAlpha})`);
+            btnGradient.addColorStop(1, `rgba(50, 80, 150, ${settingsModalAlpha})`);
+        } else {
+            btnGradient.addColorStop(0, `rgba(60, 90, 150, ${settingsModalAlpha})`);
+            btnGradient.addColorStop(1, `rgba(40, 60, 100, ${settingsModalAlpha})`);
+        }
+        
+        roundRect(ctx, btn.x, btn.y, btn.width, btn.height, 10);
+        ctx.fillStyle = btnGradient;
+        ctx.fill();
+        
+        // Button border
+        ctx.strokeStyle = `rgba(100, 150, 255, ${0.6 * settingsModalAlpha})`;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        
+        // Button text
+        ctx.font = 'bold 20px Arial';
+        ctx.fillStyle = `rgba(255, 255, 255, ${settingsModalAlpha})`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(btn.label, btn.x + btn.width / 2, btn.y + btn.height / 2);
+    });
+}
+
+// Handle settings button clicks
+function handleSettingsClick(x, y) {
+    if (!showSettingsModal || settingsModalAlpha < 0.9) return false;
+    
+    for (let btn of settingsButtons) {
+        if (x >= btn.x && x <= btn.x + btn.width &&
+            y >= btn.y && y <= btn.y + btn.height) {
+            
+            if (btn.action === 'music') {
+                gameState.music = !gameState.music;
+                if (gameState.music && sounds.track1) {
+                    sounds.track1.loop = true;
+                    sounds.track1.play().catch(e => console.log('Cannot play music'));
+                } else if (sounds.track1) {
+                    sounds.track1.pause();
+                }
+            } else if (btn.action === 'sfx') {
+                gameState.sfx = !gameState.sfx;
+            } else if (btn.action === 'mode') {
+                gameState.mode = gameState.mode === MODE_NORMAL ? MODE_EASIER : MODE_NORMAL;
+            } else if (btn.action === 'close') {
+                toggleSettings();
+                return true;
+            }
+            
+            // Update button labels
+            createSettingsButtons();
+            return true;
+        }
+    }
+    
+    return false;
 }
 
 // Show pause menu
@@ -943,7 +1153,7 @@ function gameLoop() {
         updateIntro(dt);
     } else {
         // Update
-        if (!gameState.pauseGame) {
+        if (!gameState.pauseGame && !showSettingsModal) {
             updateParticles(dt);
             updateScore(dt);
             generateNewSets();
@@ -965,6 +1175,11 @@ function gameLoop() {
         
         // Check hover
         checkButtonHover();
+        
+        // Draw settings modal on top
+        if (showSettingsModal || settingsModalAlpha > 0) {
+            drawSettingsModal();
+        }
         
         // Game over
         if (gameState.gameOver) {
