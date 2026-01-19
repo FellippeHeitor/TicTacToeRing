@@ -1432,39 +1432,48 @@ function wouldCreateCombo(targetPegIndex, dragPegIndex) {
 // Check for matches
 function checkMatches(pegIndex) {
     let totalScore = 0;
-    let scored = false;
+    let totalMatches = 0;
+    let anyScored = false;
     
-    // Create backup copies for deletion marking
-    let delPegs = pegs.slice(0, 9).map(p => ({ rings: [...p.rings] }));
-    
-    // Check for 3 same-color rings on same peg
-    const rings = delPegs[pegIndex].rings;
-    if (rings[0] >= 0 && rings[0] === rings[1] && rings[1] === rings[2]) {
-        totalScore += 3;
-        delPegs[pegIndex].rings = [...emptySet];
-        scored = true;
+    // Keep checking for matches until no more are found (for cascading combos)
+    let keepChecking = true;
+    while (keepChecking) {
+        let scored = false;
         
-        // Disturb ambient particles strongly
-        disturbParticles(pegs[pegIndex].x, pegs[pegIndex].y, 2, 250);
+        // Create backup copies for deletion marking
+        let delPegs = pegs.slice(0, 9).map(p => ({ rings: [...p.rings] }));
         
-        // Add particles
-        const ringColor = ringColors[rings[0]];
-        addParticles(pegs[pegIndex].x, pegs[pegIndex].y, 70, ringColor);
-        addParticles(pegs[pegIndex].x, pegs[pegIndex].y, 30, {
-            r: Math.min(255, ringColor.r + 30),
-            g: Math.min(255, ringColor.g + 30),
-            b: Math.min(255, ringColor.b + 30)
-        });
-        
-        // Add animation
-        animations.push({
-            type: 'peg',
-            peg: pegIndex,
-            color: ringColor,
-            startTime: Date.now(),
-            duration: 500
-        });
-    }
+        // Check for 3 same-color rings on same peg (check all pegs, not just placed one)
+        for (let idx = 0; idx < 9; idx++) {
+            const rings = delPegs[idx].rings;
+            if (rings[0] >= 0 && rings[0] === rings[1] && rings[1] === rings[2]) {
+                totalScore += 3;
+                totalMatches++;
+                delPegs[idx].rings = [...emptySet];
+                scored = true;
+                
+                // Disturb ambient particles strongly
+                disturbParticles(pegs[idx].x, pegs[idx].y, 2, 250);
+                
+                // Add particles
+                const ringColor = ringColors[rings[0]];
+                addParticles(pegs[idx].x, pegs[idx].y, 70, ringColor);
+                addParticles(pegs[idx].x, pegs[idx].y, 30, {
+                    r: Math.min(255, ringColor.r + 30),
+                    g: Math.min(255, ringColor.g + 30),
+                    b: Math.min(255, ringColor.b + 30)
+                });
+                
+                // Add animation
+                animations.push({
+                    type: 'peg',
+                    peg: idx,
+                    color: ringColor,
+                    startTime: Date.now(),
+                    duration: 500
+                });
+            }
+        }
     
     // Check lines (horizontal, vertical, diagonal)
     const lineConfigs = [
@@ -1491,6 +1500,8 @@ function checkMatches(pegIndex) {
             
             // For each common color, mark all rings of that color for deletion
             commonColors.forEach(matchColor => {
+                totalMatches++;
+                
                 // Disturb particles along the entire line strongly
                 line.forEach(pegIdx => {
                     disturbParticles(pegs[pegIdx].x, pegs[pegIdx].y, 2.5, 300);
@@ -1533,7 +1544,15 @@ function checkMatches(pegIndex) {
         for (let i = 0; i < 9; i++) {
             pegs[i].rings = [...delPegs[i].rings];
         }
-        
+        anyScored = true;
+    }
+    
+    // Continue checking if matches were found (for cascading combos)
+    keepChecking = scored;
+    }
+    
+    // Process scoring and effects if any matches were found
+    if (anyScored) {
         // Update score with animation trigger
         const scoreIncrease = totalScore * gameState.multiplier;
         gameState.score += scoreIncrease;
@@ -1598,7 +1617,7 @@ function checkMatches(pegIndex) {
         gameState.multiplier = 1;
     }
     
-    return scored;
+    return anyScored;
 }
 
 // Check available moves
