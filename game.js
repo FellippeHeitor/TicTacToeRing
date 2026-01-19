@@ -875,51 +875,65 @@ function checkMatches(pegIndex) {
 function checkAvailableMoves() {
     if (mouse.dragging >= 0) return true;
     
-    // Check if there are any sets in spawn area
-    let hasSpawnSets = false;
+    // Count non-empty spawn sets
+    let spawnSets = [];
     for (let i = 9; i < 12; i++) {
         if (!pegs[i].rings.every(r => r === -1)) {
-            hasSpawnSets = true;
-            break;
+            spawnSets.push(i);
         }
     }
     
-    if (!hasSpawnSets) return true; // Will generate new sets
+    // If no spawn sets exist, new ones will be generated
+    if (spawnSets.length === 0) return true;
     
-    // Check if any spawn set can fit anywhere on the board
-    let canMove = false;
-    for (let s = 9; s < 12; s++) {
-        const spawnSet = pegs[s].rings;
-        if (spawnSet.every(r => r === -1)) continue;
+    // Check if at least one spawn set can be placed on the board
+    let canPlaceAny = false;
+    
+    for (let spawnIdx of spawnSets) {
+        const spawnSet = pegs[spawnIdx].rings;
         
-        for (let b = 0; b < 9; b++) {
-            const boardSet = pegs[b].rings;
+        // Check each board position
+        for (let boardIdx = 0; boardIdx < 9; boardIdx++) {
+            const boardSet = pegs[boardIdx].rings;
             let canPlace = true;
             
-            for (let i = 0; i < 3; i++) {
-                if (spawnSet[i] >= 0 && boardSet[i] >= 0) {
+            // Check if this spawn set can fit on this board peg
+            for (let slot = 0; slot < 3; slot++) {
+                if (spawnSet[slot] >= 0 && boardSet[slot] >= 0) {
+                    // Both slots occupied - can't place
                     canPlace = false;
                     break;
                 }
             }
             
             if (canPlace) {
-                canMove = true;
+                canPlaceAny = true;
                 break;
             }
         }
-        if (canMove) break;
+        
+        if (canPlaceAny) break;
     }
     
-    if (canMove) return true;
-    
-    // Check if board is completely full
-    let boardString = '';
-    for (let i = 0; i < 9; i++) {
-        boardString += pegs[i].rings.join(',');
+    // Game is over if:
+    // 1. There are spawn sets available
+    // 2. None of them can be placed anywhere on the board
+    // 3. Board has at least some rings (not empty)
+    if (!canPlaceAny) {
+        // Additional check: make sure board actually has rings
+        let boardHasRings = false;
+        for (let i = 0; i < 9; i++) {
+            if (pegs[i].rings.some(r => r >= 0)) {
+                boardHasRings = true;
+                break;
+            }
+        }
+        
+        // Only game over if board has rings and no moves available
+        return !boardHasRings;
     }
     
-    return boardString.includes('-1');
+    return true;
 }
 
 // Update score animation
