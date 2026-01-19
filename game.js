@@ -1784,21 +1784,55 @@ function updateAnimations() {
                 }
             }
         } else if (anim.type === 'diagonal1') {
+            // Diagonal \ - calculate line through pegs 0, 4, 8
             const animSize = map(progress, 0, 1, 50, 0);
-            for (let xy = 0; xy < canvas.width; xy += canvas.width / 30) {
+            
+            // Get the center peg position (peg 4)
+            const centerX = pegs[4].x;
+            const centerY = pegs[4].y;
+            
+            // Calculate slope (should be 1 for perfect diagonal, but use actual pegs)
+            const x0 = pegs[anim.line[0]].x;
+            const y0 = pegs[anim.line[0]].y;
+            const x2 = pegs[anim.line[2]].x;
+            const y2 = pegs[anim.line[2]].y;
+            const slope = (y2 - y0) / (x2 - x0);
+            
+            // Draw diagonal line across entire screen, centered on the peg line
+            const maxDim = Math.max(canvas.width, canvas.height);
+            for (let offset = -maxDim; offset < maxDim; offset += maxDim / 30) {
+                const x = centerX + offset;
+                const y = centerY + offset * slope;
                 for (let k = 1; k < animSize; k += 5) {
                     const alpha = 20 / 255;
                     const animColor = `rgba(${anim.color.r}, ${anim.color.g}, ${anim.color.b}, ${alpha})`;
-                    drawCircle(xy, xy, k, animColor);
+                    drawCircle(x, y, k, animColor);
                 }
             }
         } else if (anim.type === 'diagonal2') {
+            // Diagonal / - calculate line through pegs 2, 4, 6
             const animSize = map(progress, 0, 1, 50, 0);
-            for (let xy = 0; xy < canvas.width; xy += canvas.width / 30) {
+            
+            // Get the center peg position (peg 4)
+            const centerX = pegs[4].x;
+            const centerY = pegs[4].y;
+            
+            // Calculate slope (should be -1 for perfect diagonal, but use actual pegs)
+            const x0 = pegs[anim.line[0]].x;
+            const y0 = pegs[anim.line[0]].y;
+            const x2 = pegs[anim.line[2]].x;
+            const y2 = pegs[anim.line[2]].y;
+            const slope = (y2 - y0) / (x2 - x0);
+            
+            // Draw diagonal line across entire screen, centered on the peg line
+            const maxDim = Math.max(canvas.width, canvas.height);
+            for (let offset = -maxDim; offset < maxDim; offset += maxDim / 30) {
+                const x = centerX + offset;
+                const y = centerY + offset * slope;
                 for (let k = 1; k < animSize; k += 5) {
                     const alpha = 20 / 255;
                     const animColor = `rgba(${anim.color.r}, ${anim.color.g}, ${anim.color.b}, ${alpha})`;
-                    drawCircle(xy, canvas.height - xy, k, animColor);
+                    drawCircle(x, y, k, animColor);
                 }
             }
         } else if (anim.type === 'peg') {
