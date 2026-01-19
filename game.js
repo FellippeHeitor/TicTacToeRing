@@ -116,6 +116,7 @@ let lastElectricSoundTime = 0;
 let electricSoundActive = false;
 let electricSoundFading = false;
 let electricSoundInterval = null;
+let currentMatchingRings = null; // Stores info about rings that should glow
 let dragTrails = [];
 let rippleEffects = [];
 let ambientParticles = [];
@@ -354,7 +355,7 @@ function drawCircle(x, y, radius, color) {
 }
 
 // Draw ring with 3D effect, gradients, reflections
-function drawRing(x, y, size, colorIndex) {
+function drawRing(x, y, size, colorIndex, shouldGlow = false) {
     // Size 1 = smallest (inner), Size 2 = medium, Size 3 = largest (outer)
     const outerRadius = size * 14;
     const innerRadius = size * (8 + size);
@@ -367,6 +368,18 @@ function drawRing(x, y, size, colorIndex) {
     const r = Math.min(255, color.r * satBoost);
     const g = Math.min(255, color.g * satBoost);
     const b = Math.min(255, color.b * satBoost);
+    
+    // If glowing (part of potential match), brighten the color significantly
+    let glowR = r, glowG = g, glowB = b;
+    let glowIntensity = 0;
+    if (shouldGlow) {
+        const time = Date.now() / 150;
+        glowIntensity = 0.5 + Math.sin(time) * 0.3; // Pulsing 0.2-0.8
+        const brighten = 1.3 + glowIntensity * 0.5;
+        glowR = Math.min(255, r * brighten);
+        glowG = Math.min(255, g * brighten);
+        glowB = Math.min(255, b * brighten);
+    }
     
     ctx.save();
     
@@ -383,13 +396,19 @@ function drawRing(x, y, size, colorIndex) {
     
     // Main ring with 3D gradient
     ctx.shadowBlur = 0;
+    
+    // Use glowing colors if shouldGlow is true
+    const renderR = shouldGlow ? glowR : r;
+    const renderG = shouldGlow ? glowG : g;
+    const renderB = shouldGlow ? glowB : b;
+    
     const gradient = ctx.createRadialGradient(
         x - ringRadius * 0.3, y - ringRadius * 0.3, innerRadius,
         x, y, outerRadius
     );
-    gradient.addColorStop(0, `rgb(${Math.min(255, r + 40)}, ${Math.min(255, g + 40)}, ${Math.min(255, b + 40)})`);
-    gradient.addColorStop(0.5, `rgb(${r}, ${g}, ${b})`);
-    gradient.addColorStop(1, `rgb(${r * 0.6}, ${g * 0.6}, ${b * 0.6})`);
+    gradient.addColorStop(0, `rgb(${Math.min(255, renderR + 40)}, ${Math.min(255, renderG + 40)}, ${Math.min(255, renderB + 40)})`);
+    gradient.addColorStop(0.5, `rgb(${renderR}, ${renderG}, ${renderB})`);
+    gradient.addColorStop(1, `rgb(${renderR * 0.6}, ${renderG * 0.6}, ${renderB * 0.6})`);
     
     ctx.strokeStyle = gradient;
     ctx.lineWidth = ringWidth;
@@ -419,11 +438,30 @@ function drawRing(x, y, size, colorIndex) {
     ctx.lineWidth = ringWidth * 0.5;
     ctx.stroke();
     
-    // Neon glow for high multipliers
-    if (gameState.multiplier > 2) {
+    // Enhanced glow for matching rings
+    if (shouldGlow) {
+        const glowRadius = outerRadius + 8 + glowIntensity * 12;
+        ctx.shadowBlur = 20 + glowIntensity * 25;
+        ctx.shadowColor = `rgba(${renderR}, ${renderG}, ${renderB}, ${0.8 + glowIntensity * 0.2})`;
+        ctx.strokeStyle = `rgba(${renderR}, ${renderG}, ${renderB}, ${0.4 + glowIntensity * 0.3})`;
+        ctx.lineWidth = ringWidth + 4;
+        ctx.beginPath();
+        ctx.arc(x, y, ringRadius, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        // Additional outer glow ring
+        ctx.shadowBlur = 30 + glowIntensity * 20;
+        ctx.strokeStyle = `rgba(${renderR}, ${renderG}, ${renderB}, ${0.2 + glowIntensity * 0.2})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(x, y, glowRadius, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+    // Neon glow for high multipliers (only if not already glowing from match)
+    else if (gameState.multiplier > 2) {
         ctx.shadowBlur = 15 + gameState.multiplier * 2;
-        ctx.shadowColor = `rgba(${r}, ${g}, ${b}, ${0.6})`;
-        ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.3)`;
+        ctx.shadowColor = `rgba(${renderR}, ${renderG}, ${renderB}, ${0.6})`;
+        ctx.strokeStyle = `rgba(${renderR}, ${renderG}, ${renderB}, 0.3)`;
         ctx.lineWidth = ringWidth;
         ctx.beginPath();
         ctx.arc(x, y, ringRadius, 0, Math.PI * 2);
@@ -718,7 +756,17 @@ function drawPegs() {
 // Hover highlight effect
 // Draw electric connections between matching rings
 function drawElectricConnections(comboInfo, dragPegIndex, targetPegIndex) {
-    if (!comboInfo.hasCombo) return;
+    if (!comboInfo.hasCombo) {
+        currentMatchingRings = null;
+        return;
+    }
+    
+    // Store matching rings info for drawRings to use
+    currentMatchingRings = {
+        rings: comboInfo.matchingRings,
+        dragPegIndex: dragPegIndex,
+        targetPegIndex: targetPegIndex
+    };
     
     const time = Date.now() / 200; // Slower pulsation
     const dragX = mouse.x;
@@ -840,60 +888,6 @@ function drawElectricConnections(comboInfo, dragPegIndex, targetPegIndex) {
                 }
             }
         }
-        
-        // Draw glows at each ring position
-        rings.forEach((ring, idx) => {
-            const ringSize = 3 - ring.ringIdx;
-            const ringRadius = ringSize * 7;
-            const glowIntensity = ring.isDragged ? intensity : 0.5;
-            const glowRadius = ringRadius + 12 + Math.sin(time * 1.5 + idx) * 3 + glowIntensity * 10;
-            
-            // Outer glow - more translucent, scales with intensity
-            const ringGlow = ctx.createRadialGradient(
-                ring.x, ring.y, ringRadius - 5,
-                ring.x, ring.y, glowRadius
-            );
-            const glowAlpha = 0.15 + glowIntensity * 0.25;
-            ringGlow.addColorStop(0, `rgba(150, 220, 255, ${glowAlpha + Math.sin(time * 1.5 + idx * 0.5) * 0.1})`);
-            ringGlow.addColorStop(0.6, `rgba(100, 200, 255, ${glowAlpha * 0.5})`);
-            ringGlow.addColorStop(1, 'rgba(100, 200, 255, 0)');
-            ctx.fillStyle = ringGlow;
-            ctx.beginPath();
-            ctx.arc(ring.x, ring.y, glowRadius, 0, Math.PI * 2);
-            ctx.fill();
-            
-            // Bright inner core - more translucent, scales with intensity
-            if (ring.isDragged) {
-                const coreRadius = 20 + intensity * 15;
-                const coreGlow = ctx.createRadialGradient(ring.x, ring.y, 0, ring.x, ring.y, coreRadius);
-                const coreAlpha = 0.2 + intensity * 0.4;
-                coreGlow.addColorStop(0, `rgba(200, 240, 255, ${coreAlpha + Math.sin(time * 1.2) * 0.15})`);
-                coreGlow.addColorStop(1, 'rgba(150, 220, 255, 0)');
-                ctx.fillStyle = coreGlow;
-                ctx.beginPath();
-                ctx.arc(ring.x, ring.y, coreRadius, 0, Math.PI * 2);
-                ctx.fill();
-            }
-        });
-    });
-    
-    // Draw pulsing glow at each matching peg - scales with intensity
-    comboInfo.matchingPegs.forEach((pegIdx, idx) => {
-        const peg = pegs[pegIdx];
-        const isTarget = pegIdx === targetPegIndex;
-        const pegIntensity = isTarget ? intensity : 0.5;
-        const pulseRadius = 45 + pegIntensity * 20 + Math.sin(time * 1.2 + idx * 0.7) * 8;
-        
-        const pegGlow = ctx.createRadialGradient(peg.x, peg.y, 15, peg.x, peg.y, pulseRadius);
-        const pegAlpha = 0.1 + pegIntensity * 0.2;
-        pegGlow.addColorStop(0, `rgba(100, 200, 255, ${pegAlpha})`);
-        pegGlow.addColorStop(0.5, `rgba(150, 220, 255, ${pegAlpha * 0.5})`);
-        pegGlow.addColorStop(1, 'rgba(200, 240, 255, 0)');
-        
-        ctx.fillStyle = pegGlow;
-        ctx.beginPath();
-        ctx.arc(peg.x, peg.y, pulseRadius, 0, Math.PI * 2);
-        ctx.fill();
     });
     
     ctx.shadowBlur = 0;
@@ -946,14 +940,17 @@ function drawHoverHighlight() {
         }
         if (!foundCombo) {
             stopElectricSound();
+            currentMatchingRings = null;
         }
         return;
     } else if (mouse.dragging >= 0) {
         stopElectricSound();
+        currentMatchingRings = null;
         return;
     }
     
     stopElectricSound();
+    currentMatchingRings = null;
     
     for (let i = 9; i < 12; i++) {
         if (pegs[i].rings.every(r => r === -1)) continue;
@@ -1007,7 +1004,16 @@ function drawRings() {
             const colorIndex = peg.rings[ringIdx];
             if (colorIndex >= 0) {
                 const size = 3 - ringIdx; // Convert: 0→3, 1→2, 2→1
-                drawRing(x, y, size, colorIndex);
+                
+                // Check if this ring should glow (part of potential match)
+                let shouldGlow = false;
+                if (currentMatchingRings) {
+                    shouldGlow = currentMatchingRings.rings.some(match => 
+                        match.pegIdx === i && match.ringIdx === ringIdx
+                    );
+                }
+                
+                drawRing(x, y, size, colorIndex, shouldGlow);
             }
         }
     }
