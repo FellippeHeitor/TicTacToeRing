@@ -3004,6 +3004,9 @@ function updateIntro(dt) {
     
     drawBackground();
     
+    // Track which rings are connected for glow effect
+    const connectedRings = new Set();
+    
     // Draw electric bolts between same-colored intro rings that are close
     if (introTime > 1 && introTime < 5) {
         ctx.save();
@@ -3028,6 +3031,10 @@ function updateIntro(dt) {
                 
                 // Only draw bolt if rings are close enough
                 if (distance > maxDistance) continue;
+                
+                // Mark these rings as connected (for glow effect)
+                connectedRings.add(i);
+                connectedRings.add(j);
                 
                 // Calculate intensity based on distance
                 const intensity = 1 - (distance / maxDistance);
@@ -3065,12 +3072,15 @@ function updateIntro(dt) {
     }
     
     // Animate rings
-    introRings.forEach(ring => {
+    introRings.forEach((ring, index) => {
         ring.angle += 0.01;
         ring.radius += ring.speed * dt * 60;
         const x = canvas.width / 2 + Math.cos(ring.angle) * ring.radius;
         const y = canvas.height / 2 + Math.sin(ring.angle) * ring.radius;
-        drawRing(x, y, ring.size, ring.color);
+        
+        // Apply glow if this ring is connected
+        const shouldGlow = connectedRings.has(index);
+        drawRing(x, y, ring.size, ring.color, shouldGlow);
     });
     
     // Update and draw particles
