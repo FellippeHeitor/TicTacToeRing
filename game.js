@@ -92,6 +92,10 @@ let confirmModalAlpha = 0;
 let confirmMessage = '';
 let confirmCallback = null;
 
+// Game over modal state
+let showGameOverModal = false;
+let gameOverModalAlpha = 0;
+
 // HUD animation state
 let scoreShake = 0;
 let comboScale = 1;
@@ -1149,6 +1153,13 @@ canvas.addEventListener('mouseup', (e) => {
     // Stop slider dragging
     stopSliderDrag();
     
+    // Check game over modal first
+    if (handleGameOverClick(mouse.x, mouse.y)) {
+        mouse.down = false;
+        mouse.dragging = -1;
+        return;
+    }
+    
     // Check confirmation modal first
     if (handleConfirmClick(mouse.x, mouse.y)) {
         mouse.down = false;
@@ -1673,6 +1684,207 @@ function showConfirm(message, callback) {
     showConfirmModal = true;
 }
 
+// Draw game over modal
+function drawGameOverModal() {
+    if (!showGameOverModal && gameOverModalAlpha <= 0) return;
+    
+    // Animate alpha
+    if (showGameOverModal && gameOverModalAlpha < 1) {
+        gameOverModalAlpha = Math.min(1, gameOverModalAlpha + 0.05);
+    } else if (!showGameOverModal && gameOverModalAlpha > 0) {
+        gameOverModalAlpha = Math.max(0, gameOverModalAlpha - 0.1);
+    }
+    
+    // Semi-transparent overlay
+    ctx.fillStyle = `rgba(0, 0, 0, ${0.8 * gameOverModalAlpha})`;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Modal dimensions
+    const modalWidth = 500;
+    const modalHeight = 350;
+    const modalX = (canvas.width - modalWidth) / 2;
+    const modalY = (canvas.height - modalHeight) / 2;
+    
+    // Modal background with gradient
+    const gradient = ctx.createLinearGradient(modalX, modalY, modalX, modalY + modalHeight);
+    gradient.addColorStop(0, `rgba(40, 20, 50, ${gameOverModalAlpha})`);
+    gradient.addColorStop(1, `rgba(20, 10, 30, ${gameOverModalAlpha})`);
+    
+    ctx.shadowBlur = 40 * gameOverModalAlpha;
+    ctx.shadowColor = 'rgba(255, 0, 100, 0.5)';
+    roundRect(ctx, modalX, modalY, modalWidth, modalHeight, 20);
+    ctx.fillStyle = gradient;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    
+    // Modal border
+    ctx.strokeStyle = `rgba(255, 100, 150, ${0.6 * gameOverModalAlpha})`;
+    ctx.lineWidth = 3;
+    ctx.shadowBlur = 15 * gameOverModalAlpha;
+    ctx.shadowColor = `rgba(255, 50, 100, ${gameOverModalAlpha})`;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    
+    // Title
+    ctx.font = 'bold 48px Arial';
+    ctx.fillStyle = `rgba(255, 100, 150, ${gameOverModalAlpha})`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.shadowBlur = 10 * gameOverModalAlpha;
+    ctx.shadowColor = 'rgba(255, 0, 100, 0.8)';
+    ctx.fillText('Game Over!', canvas.width / 2, modalY + 40);
+    ctx.shadowBlur = 0;
+    
+    // Score
+    ctx.font = 'bold 24px Arial';
+    ctx.fillStyle = `rgba(255, 255, 255, ${gameOverModalAlpha})`;
+    ctx.fillText(`Pontuação Final: ${Math.floor(gameState.score)}`, canvas.width / 2, modalY + 120);
+    
+    // High score message
+    if (gameState.score >= gameState.highscore) {
+        ctx.font = 'bold 20px Arial';
+        ctx.fillStyle = `rgba(255, 215, 0, ${gameOverModalAlpha})`;
+        ctx.shadowBlur = 10 * gameOverModalAlpha;
+        ctx.shadowColor = 'rgba(255, 165, 0, 0.8)';
+        ctx.fillText('🎉 Novo Recorde! 🎉', canvas.width / 2, modalY + 160);
+        ctx.shadowBlur = 0;
+    }
+    
+    // Buttons
+    const btnWidth = 180;
+    const btnHeight = 50;
+    const btnY = modalY + modalHeight - 80;
+    const btnSpacing = 20;
+    const btn1X = modalX + (modalWidth / 2) - btnWidth - btnSpacing / 2;
+    const btn2X = modalX + (modalWidth / 2) + btnSpacing / 2;
+    
+    // Play again button
+    const playHovered = mouseX >= btn1X && mouseX <= btn1X + btnWidth &&
+                       mouseY >= btnY && mouseY <= btnY + btnHeight;
+    
+    if (playHovered) {
+        ctx.shadowBlur = 20 * gameOverModalAlpha;
+        ctx.shadowColor = 'rgba(100, 255, 100, 0.8)';
+    } else {
+        ctx.shadowBlur = 10 * gameOverModalAlpha;
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    }
+    
+    const playGradient = ctx.createLinearGradient(btn1X, btnY, btn1X, btnY + btnHeight);
+    if (playHovered) {
+        playGradient.addColorStop(0, `rgba(80, 200, 80, ${gameOverModalAlpha})`);
+        playGradient.addColorStop(1, `rgba(50, 150, 50, ${gameOverModalAlpha})`);
+    } else {
+        playGradient.addColorStop(0, `rgba(60, 160, 60, ${gameOverModalAlpha})`);
+        playGradient.addColorStop(1, `rgba(40, 120, 40, ${gameOverModalAlpha})`);
+    }
+    
+    roundRect(ctx, btn1X, btnY, btnWidth, btnHeight, 10);
+    ctx.fillStyle = playGradient;
+    ctx.fill();
+    ctx.strokeStyle = `rgba(100, 255, 100, ${0.6 * gameOverModalAlpha})`;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    
+    ctx.font = 'bold 20px Arial';
+    ctx.fillStyle = `rgba(255, 255, 255, ${gameOverModalAlpha})`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Jogar de Novo', btn1X + btnWidth / 2, btnY + btnHeight / 2);
+    
+    // Menu button
+    const menuHovered = mouseX >= btn2X && mouseX <= btn2X + btnWidth &&
+                       mouseY >= btnY && mouseY <= btnY + btnHeight;
+    
+    if (menuHovered) {
+        ctx.shadowBlur = 20 * gameOverModalAlpha;
+        ctx.shadowColor = 'rgba(255, 150, 100, 0.8)';
+    } else {
+        ctx.shadowBlur = 10 * gameOverModalAlpha;
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    }
+    
+    const menuGradient = ctx.createLinearGradient(btn2X, btnY, btn2X, btnY + btnHeight);
+    if (menuHovered) {
+        menuGradient.addColorStop(0, `rgba(180, 100, 50, ${gameOverModalAlpha})`);
+        menuGradient.addColorStop(1, `rgba(130, 70, 30, ${gameOverModalAlpha})`);
+    } else {
+        menuGradient.addColorStop(0, `rgba(150, 80, 40, ${gameOverModalAlpha})`);
+        menuGradient.addColorStop(1, `rgba(100, 50, 20, ${gameOverModalAlpha})`);
+    }
+    
+    roundRect(ctx, btn2X, btnY, btnWidth, btnHeight, 10);
+    ctx.fillStyle = menuGradient;
+    ctx.fill();
+    ctx.strokeStyle = `rgba(255, 150, 100, ${0.6 * gameOverModalAlpha})`;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    
+    ctx.fillStyle = `rgba(255, 255, 255, ${gameOverModalAlpha})`;
+    ctx.fillText('Menu', btn2X + btnWidth / 2, btnY + btnHeight / 2);
+}
+
+// Handle game over modal clicks
+function handleGameOverClick(x, y) {
+    if (!showGameOverModal || gameOverModalAlpha < 0.9) return false;
+    
+    const modalWidth = 500;
+    const modalHeight = 350;
+    const modalX = (canvas.width - modalWidth) / 2;
+    const modalY = (canvas.height - modalHeight) / 2;
+    
+    const btnWidth = 180;
+    const btnHeight = 50;
+    const btnY = modalY + modalHeight - 80;
+    const btnSpacing = 20;
+    const btn1X = modalX + (modalWidth / 2) - btnWidth - btnSpacing / 2;
+    const btn2X = modalX + (modalWidth / 2) + btnSpacing / 2;
+    
+    // Play again button
+    if (x >= btn1X && x <= btn1X + btnWidth &&
+        y >= btnY && y <= btnY + btnHeight) {
+        showGameOverModal = false;
+        gameOverModalAlpha = 0;
+        
+        // Reset game
+        gameState.score = 0;
+        gameState.visibleScore = 0;
+        gameState.level = 0;
+        gameState.multiplier = 1;
+        gameState.maxColors = 3;
+        gameState.gameOver = false;
+        
+        // Restart music if volume > 0
+        if (sounds.track1 && gameState.musicVolume > 0) {
+            sounds.track1.currentTime = 0;
+            sounds.track1.loop = true;
+            sounds.track1.volume = gameState.musicVolume;
+            sounds.track1.play().catch(() => {});
+        }
+        
+        initGame();
+        return true;
+    }
+    
+    // Menu button
+    if (x >= btn2X && x <= btn2X + btnWidth &&
+        y >= btnY && y <= btnY + btnHeight) {
+        showGameOverModal = false;
+        gameOverModalAlpha = 0;
+        gameState.gameOver = false;
+        
+        // Reset to intro
+        showIntro = true;
+        introTime = 0;
+        initIntro();
+        return true;
+    }
+    
+    return false;
+}
+
 // Handle settings button clicks
 function handleSettingsClick(x, y) {
     if (!showSettingsModal || settingsModalAlpha < 0.9) return false;
@@ -1988,23 +2200,13 @@ function gameLoop() {
             drawConfirmModal();
         }
         
-        // Game over
-        if (gameState.gameOver) {
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            drawCenteredText('Game Over!', canvas.height / 2 - 40, 4, '#fff');
-            drawCenteredText(`Score: ${Math.floor(gameState.score)}`, canvas.height / 2 + 20, 2, '#fff');
-            drawCenteredText('Click to restart', canvas.height / 2 + 60, 1, '#aaa');
-            
-            if (mouse.clicked) {
-                // Reset game
-                gameState.score = 0;
-                gameState.visibleScore = 0;
-                gameState.level = 0;
-                gameState.multiplier = 1;
-                gameState.gameOver = false;
-                initGame();
-            }
+        // Game over modal
+        if (gameState.gameOver && !showGameOverModal) {
+            showGameOverModal = true;
+        }
+        
+        if (showGameOverModal || gameOverModalAlpha > 0) {
+            drawGameOverModal();
         }
     }
     
