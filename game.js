@@ -26,6 +26,60 @@ let gameState = {
     prevSfxVolume: 0.7
 };
 
+// LocalStorage functions
+function saveSettings() {
+    try {
+        const settings = {
+            musicVolume: gameState.musicVolume,
+            sfxVolume: gameState.sfxVolume,
+            prevMusicVolume: gameState.prevMusicVolume,
+            prevSfxVolume: gameState.prevSfxVolume,
+            mode: gameState.mode
+        };
+        localStorage.setItem('tictactoering_settings', JSON.stringify(settings));
+    } catch (e) {
+        console.log('Could not save settings:', e);
+    }
+}
+
+function loadSettings() {
+    try {
+        const saved = localStorage.getItem('tictactoering_settings');
+        if (saved) {
+            const settings = JSON.parse(saved);
+            gameState.musicVolume = settings.musicVolume ?? 0.7;
+            gameState.sfxVolume = settings.sfxVolume ?? 0.7;
+            gameState.prevMusicVolume = settings.prevMusicVolume ?? 0.7;
+            gameState.prevSfxVolume = settings.prevSfxVolume ?? 0.7;
+            gameState.mode = settings.mode ?? MODE_NORMAL;
+        }
+    } catch (e) {
+        console.log('Could not load settings:', e);
+    }
+}
+
+function saveHighScore() {
+    try {
+        const key = gameState.mode === MODE_NORMAL ? 'tictactoering_highscore_normal' : 'tictactoering_highscore_easier';
+        localStorage.setItem(key, gameState.highscore.toString());
+    } catch (e) {
+        console.log('Could not save high score:', e);
+    }
+}
+
+function loadHighScore() {
+    try {
+        const key = gameState.mode === MODE_NORMAL ? 'tictactoering_highscore_normal' : 'tictactoering_highscore_easier';
+        const saved = localStorage.getItem(key);
+        if (saved) {
+            gameState.highscore = parseInt(saved, 10) || 0;
+            gameState.visibleHighScore = gameState.highscore;
+        }
+    } catch (e) {
+        console.log('Could not load high score:', e);
+    }
+}
+
 // Settings modal state
 let showSettingsModal = false;
 let settingsButtons = [];
@@ -808,6 +862,7 @@ function checkMatches(pegIndex) {
         
         if (gameState.score > gameState.highscore) {
             gameState.highscore = gameState.score;
+            saveHighScore();
         }
     } else {
         gameState.multiplier = 1;
@@ -1633,6 +1688,7 @@ function handleSettingsClick(x, y) {
                             sounds.track1.pause();
                         }
                     }
+                    saveSettings();
                 } else if (btn.action === 'sfx-slider') {
                     gameState.sfxVolume = newValue;
                     if (newValue > 0) {
@@ -1642,6 +1698,7 @@ function handleSettingsClick(x, y) {
                     if (newValue > 0 && sounds.select) {
                         playSound(sounds.select);
                     }
+                    saveSettings();
                 }
                 
                 createSettingsButtons();
@@ -1669,6 +1726,7 @@ function handleSettingsClick(x, y) {
                             sounds.track1.play().catch(e => console.log('Cannot play music'));
                         }
                     }
+                    saveSettings();
                 } else if (btn.action === 'sfx-toggle') {
                     if (gameState.sfxVolume > 0) {
                         // Turn off - save current volume
@@ -1682,6 +1740,7 @@ function handleSettingsClick(x, y) {
                             playSound(sounds.select);
                         }
                     }
+                    saveSettings();
                 }
                 
                 createSettingsButtons();
@@ -1701,6 +1760,7 @@ function handleSettingsClick(x, y) {
                         if (confirmed) {
                             // Change mode
                             gameState.mode = gameState.mode === MODE_NORMAL ? MODE_EASIER : MODE_NORMAL;
+                            saveSettings();
                             
                             // Reset game state
                             gameState.score = 0;
@@ -1709,6 +1769,9 @@ function handleSettingsClick(x, y) {
                             gameState.multiplier = 1;
                             gameState.maxColors = 3;
                             gameState.gameOver = false;
+                            
+                            // Load high score for new mode
+                            loadHighScore();
                             
                             // Close settings and restart
                             toggleSettings();
@@ -1752,11 +1815,13 @@ function handleSliderDrag(x, y) {
                 sounds.track1.pause();
             }
         }
+        saveSettings();
     } else if (draggingSlider.action === 'sfx-slider') {
         gameState.sfxVolume = newValue;
         if (newValue > 0) {
             gameState.prevSfxVolume = newValue;
         }
+        saveSettings();
     }
     
     createSettingsButtons();
@@ -1841,6 +1906,12 @@ function updateIntro(dt) {
 
 // Init game
 function initGame() {
+    // Load settings and high score on first init
+    if (!pegs || pegs.length === 0) {
+        loadSettings();
+        loadHighScore();
+    }
+    
     initPegs();
     
     // Reset spawn rings
