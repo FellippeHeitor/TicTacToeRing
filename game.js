@@ -956,22 +956,7 @@ function drawHoverHighlight() {
         if (pegs[i].rings.every(r => r === -1)) continue;
         
         if (dist(pegs[i].x, pegs[i].y, mouse.x, mouse.y) <= 40) {
-            // Determine halo size based on largest ring present
-            // Index 0 = largest, Index 1 = medium, Index 2 = smallest
-            let halo = 12;
-            if (pegs[i].rings[0] >= 0) halo = 40; // Large ring
-            else if (pegs[i].rings[1] >= 0) halo = 25; // Medium ring
-            else if (pegs[i].rings[2] >= 0) halo = 12; // Small ring
-            
-            // Pulsing glow effect
-            const time = Date.now() / 100;
-            const glow = 8 + Math.sin(time) * 4;
-            
-            for (let j = glow; j > 8; j -= 0.5) {
-                const alpha = (j - 8) / 8;
-                drawCircle(pegs[i].x, pegs[i].y, halo + (glow - j) * 0.8, `rgba(255, 255, 255, ${alpha * 0.3})`);
-                drawCircle(pegs[i].x, pegs[i].y, (halo / 2) + (glow - j) * 0.8, `rgba(0, 0, 0, ${alpha * 0.3})`);
-            }
+            // No visual effect, just detect hover
             break;
         }
     }
@@ -988,14 +973,6 @@ function drawRings() {
         if (mouse.dragging === i) {
             x = mouse.x;
             y = mouse.y;
-            
-            // Add drag trail for each ring
-            for (let ringIdx = 0; ringIdx < 3; ringIdx++) {
-                const colorIndex = peg.rings[ringIdx];
-                if (colorIndex >= 0 && Math.random() < 0.3) {
-                    addDragTrail(x, y, colorIndex);
-                }
-            }
         }
         
         // Draw rings from largest to smallest (so smaller appear on top/inside)
@@ -1005,9 +982,12 @@ function drawRings() {
             if (colorIndex >= 0) {
                 const size = 3 - ringIdx; // Convert: 0→3, 1→2, 2→1
                 
-                // Check if this ring should glow (part of potential match)
+                // Check if this ring should glow (part of potential match OR being dragged)
                 let shouldGlow = false;
-                if (currentMatchingRings) {
+                if (mouse.dragging === i) {
+                    // Add temperature glow while dragging
+                    shouldGlow = true;
+                } else if (currentMatchingRings) {
                     shouldGlow = currentMatchingRings.rings.some(match => 
                         match.pegIdx === i && match.ringIdx === ringIdx
                     );
