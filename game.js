@@ -97,7 +97,12 @@ let confirmModalAlpha = 0;
 // Game over explosion state
 let gameOverExplosionStarted = false;
 let gameOverExplosionTime = 0;
-const GAME_OVER_EXPLOSION_DELAY = 1.5; // Wait 1.5 seconds for explosion before showing modal
+const GAME_OVER_GLOW_DURATION = 0.8; // Glow phase duration (with electric sound)
+const GAME_OVER_TREMBLE_DURATION = 0.5; // Tremble phase duration
+const GAME_OVER_EXPLOSION_DURATION = 0.3; // Explosion phase duration
+const GAME_OVER_TOTAL_DURATION = GAME_OVER_GLOW_DURATION + GAME_OVER_TREMBLE_DURATION + GAME_OVER_EXPLOSION_DURATION;
+let gameOverReason = 'no-moves'; // 'no-moves' or 'quit'
+let gameOverElectricSoundStarted = false;
 let confirmMessage = '';
 let confirmCallback = null;
 
@@ -539,8 +544,102 @@ function explodeSpawnedRings() {
         }
     }
     
-    // Play explosion sound
-    if (sounds.woosh) playSound(sounds.woosh);
+    // Major screen flash for game over explosion
+    screenFlash = 0.8;
+    
+    // Stop electric sound and play single explosion sound
+    if (sounds.electric) {
+        sounds.electric.pause();
+        sounds.electric.currentTime = 0;
+    }
+    
+    // Play explosion sound only once
+    if (sounds.woosh) {
+        sounds.woosh.currentTime = 0;
+        sounds.woosh.play().catch(() => {});
+    }
+}
+
+// Draw game over animation effects on spawn rings
+function drawGameOverRingEffects() {
+    if (!gameState.gameOver || !gameOverExplosionStarted) return;
+    if (pegs.length < 12) return;
+    
+    const t = gameOverExplosionTime;
+    
+    // Start electric sound at beginning of glow phase
+    if (!gameOverElectricSoundStarted && sounds.electric) {
+        gameOverElectricSoundStarted = true;
+        sounds.electric.currentTime = 0;
+        sounds.electric.volume = gameState.sfxVolume * 0.5;
+        sounds.electric.loop = true;
+        sounds.electric.play().catch(() => {});
+    }
+    
+    // Phase 1: Glow (0 to GLOW_DURATION)
+    if (t < GAME_OVER_GLOW_DURATION) {
+        const glowProgress = t / GAME_OVER_GLOW_DURATION;
+        const glowIntensity = Math.sin(glowProgress * Math.PI * 6) * 0.5 + 0.5; // Pulsing glow (faster)
+        
+        for (let i = 9; i < 12; i++) {
+            if (!pegs[i].rings.every(r => r === -1)) {
+                ctx.save();
+                ctx.shadowBlur = 30 + glowIntensity * 40;
+                ctx.shadowColor = 'rgba(255, 255, 255, ' + (0.8 * glowIntensity) + ')';
+                
+                // Draw glow circles
+                for (let j = 0; j < 3; j++) {
+                    const colorIndex = pegs[i].rings[j];
+                    if (colorIndex >= 0) {
+                        const color = ringColors[colorIndex];
+                        ctx.strokeStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${glowIntensity})`;
+                        ctx.lineWidth = 4;
+                        const radius = 35 + j * 15 + glowIntensity * 5;
+                        ctx.beginPath();
+                        ctx.arc(pegs[i].x, pegs[i].y, radius, 0, Math.PI * 2);
+                        ctx.stroke();
+                    }
+                }
+                ctx.restore();
+            }
+        }
+    }
+    // Phase 2: Tremble (GLOW_DURATION to GLOW_DURATION + TREMBLE_DURATION)
+    else if (t < GAME_OVER_GLOW_DURATION + GAME_OVER_TREMBLE_DURATION) {
+        const trembleProgress = (t - GAME_OVER_GLOW_DURATION) / GAME_OVER_TREMBLE_DURATION;
+        const trembleIntensity = trembleProgress * 10; // Shake increases over time
+        const trembleSpeed = 30; // Frequency of shake
+        
+        // Continue glow during tremble
+        const glowIntensity = 0.7 + Math.sin(t * 10) * 0.3;
+        
+        for (let i = 9; i < 12; i++) {
+            if (!pegs[i].rings.every(r => r === -1)) {
+                // Calculate tremble offset
+                const offsetX = Math.sin(t * trembleSpeed + i) * trembleIntensity;
+                const offsetY = Math.cos(t * trembleSpeed * 1.3 + i) * trembleIntensity;
+                
+                ctx.save();
+                ctx.shadowBlur = 40;
+                ctx.shadowColor = 'rgba(255, 255, 255, 0.9)';
+                
+                // Draw trembling glowing rings
+                for (let j = 0; j < 3; j++) {
+                    const colorIndex = pegs[i].rings[j];
+                    if (colorIndex >= 0) {
+                        const color = ringColors[colorIndex];
+                        ctx.strokeStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${glowIntensity})`;
+                        ctx.lineWidth = 5;
+                        const radius = 35 + j * 15;
+                        ctx.beginPath();
+                        ctx.arc(pegs[i].x + offsetX, pegs[i].y + offsetY, radius, 0, Math.PI * 2);
+                        ctx.stroke();
+                    }
+                }
+                ctx.restore();
+            }
+        }
+    }
 }
 
 // Draw trails
@@ -2451,9 +2550,12 @@ function handleButtonClick(index) {
             sounds.track1.volume = gameState.pausedMusicVolume;
         }
     } else if (index === 2) {
-        // Quit - trigger immediate game over
+        // Quit - trigger game over with animation
+        gameOverReason = 'quit';
         gameState.gameOver = true;
-        showGameOverModal = true;
+        gameOverExplosionStarted = false;
+        gameOverExplosionTime = 0;
+        gameOverElectricSoundStarted = false;
         
         if (sounds.fail) playSound(sounds.fail);
     }
@@ -3017,6 +3119,13 @@ function drawGameOverModal() {
     ctx.fillText('Game Over!', canvas.width / 2, modalY + 40);
     ctx.shadowBlur = 0;
     
+    // Subtitle - show reason if not quit
+    if (gameOverReason === 'no-moves') {
+        ctx.font = '20px Arial';
+        ctx.fillStyle = `rgba(255, 150, 170, ${gameOverModalAlpha * 0.8})`;
+        ctx.fillText('No more moves', canvas.width / 2, modalY + 95);
+    }
+    
     // Score
     ctx.font = 'bold 24px Arial';
     ctx.fillStyle = `rgba(255, 255, 255, ${gameOverModalAlpha})`;
@@ -3470,6 +3579,8 @@ function initGame(userInteracted = true) {
     // Reset game over explosion state
     gameOverExplosionStarted = false;
     gameOverExplosionTime = 0;
+    gameOverReason = 'no-moves';
+    gameOverElectricSoundStarted = false;
     
     // Load settings and high score on first init
     if (!pegs || pegs.length === 0) {
@@ -3537,6 +3648,7 @@ function gameLoop() {
             if (!gameState.gameOver && !checkAvailableMoves()) {
                 // Wait for score animation to complete
                 if (Math.abs(gameState.visibleScore - gameState.score) < 1) {
+                    gameOverReason = 'no-moves';
                     gameState.gameOver = true;
                     gameOverExplosionStarted = false;
                     gameOverExplosionTime = 0;
@@ -3545,9 +3657,17 @@ function gameLoop() {
             
             // Handle game over explosion sequence
             if (gameState.gameOver && !gameOverExplosionStarted) {
-                explodeSpawnedRings();
+                // Start animation sequence for both quit and no-moves
                 gameOverExplosionStarted = true;
                 gameOverExplosionTime = 0;
+            }
+            
+            // Trigger explosion at the right time in the sequence
+            if (gameState.gameOver && gameOverExplosionStarted) {
+                const explosionPhaseStart = GAME_OVER_GLOW_DURATION + GAME_OVER_TREMBLE_DURATION;
+                if (gameOverExplosionTime >= explosionPhaseStart && gameOverExplosionTime < explosionPhaseStart + 0.05) {
+                    explodeSpawnedRings();
+                }
             }
             
             // Update tutorial timer
@@ -3572,6 +3692,7 @@ function gameLoop() {
         drawDragTrails();
         drawHoverHighlight();
         drawRings();
+        drawGameOverRingEffects(); // Draw glow and tremble effects
         drawRipples();
         updateAnimations();
         drawHUD();
@@ -3622,7 +3743,7 @@ function gameLoop() {
         
         // Game over modal - only show after explosion animation completes
         if (gameState.gameOver && !showGameOverModal) {
-            if (gameOverExplosionTime >= GAME_OVER_EXPLOSION_DELAY) {
+            if (gameOverExplosionTime >= GAME_OVER_TOTAL_DURATION) {
                 showGameOverModal = true;
             }
         }
