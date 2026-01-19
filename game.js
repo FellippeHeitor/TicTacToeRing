@@ -23,7 +23,8 @@ let gameState = {
     musicVolume: 0.7,
     sfxVolume: 0.7,
     prevMusicVolume: 0.7,
-    prevSfxVolume: 0.7
+    prevSfxVolume: 0.7,
+    pausedMusicVolume: 0
 };
 
 // LocalStorage functions
@@ -1153,6 +1154,18 @@ canvas.addEventListener('mouseup', (e) => {
     // Stop slider dragging
     stopSliderDrag();
     
+    // Check if paused - click anywhere to unpause
+    if (gameState.pauseGame && !showSettingsModal && !showConfirmModal && !showGameOverModal) {
+        gameState.pauseGame = false;
+        // Restore music volume
+        if (sounds.track1) {
+            sounds.track1.volume = gameState.pausedMusicVolume;
+        }
+        mouse.down = false;
+        mouse.dragging = -1;
+        return;
+    }
+    
     // Check game over modal first
     if (handleGameOverClick(mouse.x, mouse.y)) {
         mouse.down = false;
@@ -1238,6 +1251,17 @@ function handleButtonClick(index) {
     } else if (index === 1) {
         // Pause
         gameState.pauseGame = !gameState.pauseGame;
+        
+        // Reduce music volume when pausing
+        if (gameState.pauseGame && sounds.track1) {
+            gameState.pausedMusicVolume = gameState.musicVolume;
+            if (gameState.musicVolume > 0.05) {
+                sounds.track1.volume = 0.05;
+            }
+        } else if (!gameState.pauseGame && sounds.track1) {
+            // Restore music volume when unpausing
+            sounds.track1.volume = gameState.pausedMusicVolume;
+        }
     }
 }
 
@@ -1695,8 +1719,8 @@ function drawGameOverModal() {
         gameOverModalAlpha = Math.max(0, gameOverModalAlpha - 0.1);
     }
     
-    // Semi-transparent overlay
-    ctx.fillStyle = `rgba(0, 0, 0, ${0.8 * gameOverModalAlpha})`;
+    // Semi-transparent overlay (lighter to see board behind)
+    ctx.fillStyle = `rgba(0, 0, 0, ${0.4 * gameOverModalAlpha})`;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
     // Modal dimensions
@@ -1874,6 +1898,12 @@ function handleGameOverClick(x, y) {
         showGameOverModal = false;
         gameOverModalAlpha = 0;
         gameState.gameOver = false;
+        
+        // Stop music
+        if (sounds.track1) {
+            sounds.track1.pause();
+            sounds.track1.currentTime = 0;
+        }
         
         // Reset to intro
         showIntro = true;
@@ -2173,8 +2203,12 @@ function gameLoop() {
             updateScore(dt);
             generateNewSets();
             
-            if (!checkAvailableMoves()) {
-                gameState.gameOver = true;
+            // Check game over after score is fully updated
+            if (!gameState.gameOver && !checkAvailableMoves()) {
+                // Wait for score animation to complete
+                if (Math.abs(gameState.visibleScore - gameState.score) < 1) {
+                    gameState.gameOver = true;
+                }
             }
         }
         
@@ -2186,6 +2220,25 @@ function gameLoop() {
         drawRings();
         updateAnimations();
         drawHUD();
+        
+        // Draw pause overlay if paused
+        if (gameState.pauseGame) {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            ctx.font = 'bold 60px Arial';
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = 'rgba(255, 255, 255, 0.8)';
+            ctx.fillText('PAUSADO', canvas.width / 2, canvas.height / 2 - 30);
+            
+            ctx.font = '24px Arial';
+            ctx.shadowBlur = 10;
+            ctx.fillText('Clique para continuar', canvas.width / 2, canvas.height / 2 + 30);
+            ctx.shadowBlur = 0;
+        }
         
         // Check hover
         checkButtonHover();
