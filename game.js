@@ -127,6 +127,13 @@ let electricSoundActive = false;
 let electricSoundFading = false;
 let electricSoundInterval = null;
 let currentMatchingRings = null; // Stores info about rings that should glow
+let electricConnectionsStartTime = 0; // When current connections started (for fade-in)
+const ELECTRIC_FADE_IN_DURATION = 300; // Duration of fade-in effect in ms
+const ELECTRIC_FADE_OUT_DURATION = 200; // Duration of fade-out effect in ms
+let electricConnectionsFadingOut = false; // Whether connections are fading out
+let electricConnectionsFadeOutStartTime = 0; // When fade-out started
+let lastMatchingRings = null; // Store last connections for fade-out
+let connectionSparkles = []; // Sparkles for connected rings (max 50 for performance)
 let dragTrails = [];
 let rippleEffects = [];
 let ambientParticles = [];
@@ -662,6 +669,99 @@ function drawDragTrails() {
     ctx.restore();
 }
 
+// Generate sparkles for connected rings
+function generateConnectionSparkles() {
+    if (!currentMatchingRings || !gameState.electricConnections || electricConnectionsFadingOut) return;
+    
+    // Limit total sparkles for performance
+    if (connectionSparkles.length > 50) return;
+    
+    // Calculate fade-in alpha to reduce sparkles during fade-in
+    const elapsed = Date.now() - electricConnectionsStartTime;
+    const fadeInAlpha = Math.min(1, elapsed / ELECTRIC_FADE_IN_DURATION);
+    
+    // Generate sparkles less frequently (reduced from 0.3 to 0.15)
+    if (Math.random() < 0.15 * fadeInAlpha) {
+        currentMatchingRings.rings.forEach(match => {
+            const peg = pegs[match.pegIdx];
+            let x, y;
+            
+            // Use mouse position if dragging this peg
+            if (match.pegIdx === currentMatchingRings.dragPegIndex) {
+                x = mouse.x;
+                y = mouse.y;
+            } else {
+                x = peg.x;
+                y = peg.y;
+            }
+            
+            // Get ring color
+            const color = ringColors[match.color];
+            
+            // Create 1-2 sparkles (reduced from 1-3)
+            const numSparkles = Math.floor(Math.random() * 2) + 1;
+            for (let i = 0; i < numSparkles; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const radius = 20 + Math.random() * 25;
+                const offsetX = Math.cos(angle) * radius;
+                const offsetY = Math.sin(angle) * radius;
+                
+                connectionSparkles.push({
+                    x: x + offsetX,
+                    y: y + offsetY,
+                    vx: (Math.random() - 0.5) * 4, // Faster horizontal (doubled)
+                    vy: -Math.random() * 4 - 2, // Faster upward (doubled)
+                    life: 1.0,
+                    size: Math.random() * 0.8 + 0.4, // Smaller (was 2 + 1)
+                    color: color,
+                    rotation: Math.random() * Math.PI * 2
+                });
+            }
+        });
+    }
+}
+
+// Draw and update connection sparkles (optimized)
+function drawConnectionSparkles() {
+    // Pre-calculate colors to avoid repeated calculations
+    const sparkleCache = {};
+    
+    connectionSparkles = connectionSparkles.filter(sparkle => {
+        // Update position
+        sparkle.x += sparkle.vx;
+        sparkle.y += sparkle.vy;
+        
+        // Faster fade out (was 0.02, now 0.04)
+        sparkle.life -= 0.04;
+        if (sparkle.life <= 0) return false;
+        
+        return true;
+    });
+    
+    // Batch draw all sparkles without save/restore per sparkle
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter'; // Additive blending for glow effect
+    
+    for (const sparkle of connectionSparkles) {
+        const alpha = sparkle.life * 0.9;
+        const size = sparkle.size * sparkle.life * 3;
+        
+        // Simple circle (faster than complex shapes)
+        ctx.fillStyle = `rgba(${sparkle.color.r}, ${sparkle.color.g}, ${sparkle.color.b}, ${alpha})`;
+        ctx.beginPath();
+        ctx.arc(sparkle.x, sparkle.y, size, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Smaller bright center
+        ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.6})`;
+        ctx.beginPath();
+        ctx.arc(sparkle.x, sparkle.y, size * 0.4, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    
+    ctx.restore();
+}
+
 // Draw ripple effects
 function drawRipples() {
     ctx.save();
@@ -960,11 +1060,26 @@ function drawPegs() {
 // Draw electric connections between matching rings
 function drawElectricConnections(comboInfo, dragPegIndex, targetPegIndex) {
     if (!comboInfo.hasCombo) {
-        currentMatchingRings = null;
+        // Start fade-out if we had connections before
+        if (currentMatchingRings && !electricConnectionsFadingOut) {
+            electricConnectionsFadingOut = true;
+            electricConnectionsFadeOutStartTime = Date.now();
+            lastMatchingRings = currentMatchingRings;
+            currentMatchingRings = null;
+        }
         return;
     }
     
+    // Cancel fade-out if new connections appear
+    electricConnectionsFadingOut = false;
+    
     // Store matching rings info for drawRings to use
+    // Initialize start time if this is a new connection
+    if (!currentMatchingRings || 
+        JSON.stringify(currentMatchingRings.rings) !== JSON.stringify(comboInfo.matchingRings)) {
+        electricConnectionsStartTime = Date.now();
+    }
+    
     currentMatchingRings = {
         rings: comboInfo.matchingRings,
         dragPegIndex: dragPegIndex,
@@ -982,6 +1097,13 @@ function drawElectricConnections(comboInfo, dragPegIndex, targetPegIndex) {
     const maxDistance = 300; // Maximum distance to show effect
     const distanceFactor = Math.max(0, 1 - (distance / maxDistance));
     const intensity = distanceFactor * distanceFactor; // Squared for more dramatic falloff
+    
+    // Calculate fade-in alpha (0 to 1)
+    const elapsed = Date.now() - electricConnectionsStartTime;
+    const fadeInAlpha = Math.min(1, elapsed / ELECTRIC_FADE_IN_DURATION);
+    
+    // Store current connections for potential fade-out
+    lastMatchingRings = currentMatchingRings;
     
     // Start electric sound with fade in if not already playing
     if (sounds.electric && !electricSoundActive && intensity > 0.3) {
@@ -1061,11 +1183,12 @@ function drawElectricConnections(comboInfo, dragPegIndex, targetPegIndex) {
                 const baseShadow = involvesDrag ? 10 + intensity * 20 : 15;
                 
                 for (let b = 0; b < numBolts; b++) {
-                    // Scale opacity and width based on intensity
-                    ctx.strokeStyle = `rgba(150, 220, 255, ${baseOpacity + Math.random() * 0.2})`;
+                    // Scale opacity and width based on intensity and fade-in
+                    const finalOpacity = (baseOpacity + Math.random() * 0.2) * fadeInAlpha;
+                    ctx.strokeStyle = `rgba(150, 220, 255, ${finalOpacity})`;
                     ctx.lineWidth = baseWidth + Math.random() * 1;
-                    ctx.shadowBlur = baseShadow;
-                    ctx.shadowColor = `rgba(150, 220, 255, ${0.5 + intensity * 0.4})`;
+                    ctx.shadowBlur = baseShadow * fadeInAlpha;
+                    ctx.shadowColor = `rgba(150, 220, 255, ${(0.5 + intensity * 0.4) * fadeInAlpha})`;
                     ctx.lineCap = 'round';
                     ctx.lineJoin = 'round';
                     
@@ -1079,6 +1202,99 @@ function drawElectricConnections(comboInfo, dragPegIndex, targetPegIndex) {
                         const px = ring1.x + (ring2.x - ring1.x) * t;
                         const py = ring1.y + (ring2.y - ring1.y) * t;
                         const jitter = (Math.random() - 0.5) * (15 + intensity * 15) * Math.sin(t * Math.PI);
+                        const angle = Math.atan2(ring2.y - ring1.y, ring2.x - ring1.x);
+                        
+                        ctx.lineTo(
+                            px + Math.cos(angle + Math.PI / 2) * jitter,
+                            py + Math.sin(angle + Math.PI / 2) * jitter
+                        );
+                    }
+                    
+                    ctx.stroke();
+                }
+            }
+        }
+    });
+    
+    ctx.shadowBlur = 0;
+    ctx.restore();
+}
+
+// Draw fading out electric connections
+function drawFadingOutConnections() {
+    if (!electricConnectionsFadingOut || !lastMatchingRings) return;
+    
+    const elapsed = Date.now() - electricConnectionsFadeOutStartTime;
+    const fadeOutAlpha = Math.max(0, 1 - (elapsed / ELECTRIC_FADE_OUT_DURATION));
+    
+    // Stop fading out when complete
+    if (fadeOutAlpha <= 0) {
+        electricConnectionsFadingOut = false;
+        lastMatchingRings = null;
+        return;
+    }
+    
+    ctx.save();
+    
+    // Group matching rings by color
+    const ringsByColor = {};
+    lastMatchingRings.rings.forEach(match => {
+        if (!ringsByColor[match.color]) {
+            ringsByColor[match.color] = [];
+        }
+        
+        const isDraggingThisPeg = match.pegIdx === lastMatchingRings.dragPegIndex;
+        
+        if (isDraggingThisPeg) {
+            ringsByColor[match.color].push({
+                x: mouse.x,
+                y: mouse.y,
+                pegIdx: match.pegIdx,
+                ringIdx: match.ringIdx,
+                isDragged: true
+            });
+        } else {
+            const targetPeg = pegs[match.pegIdx];
+            ringsByColor[match.color].push({
+                x: targetPeg.x,
+                y: targetPeg.y,
+                pegIdx: match.pegIdx,
+                ringIdx: match.ringIdx,
+                isDragged: false
+            });
+        }
+    });
+    
+    // Draw lightning connections with fade-out alpha
+    Object.values(ringsByColor).forEach(rings => {
+        for (let i = 0; i < rings.length; i++) {
+            for (let j = i + 1; j < rings.length; j++) {
+                const ring1 = rings[i];
+                const ring2 = rings[j];
+                
+                const baseOpacity = 0.6;
+                const numBolts = 2;
+                const baseWidth = 2;
+                const baseShadow = 15;
+                
+                for (let b = 0; b < numBolts; b++) {
+                    const finalOpacity = (baseOpacity + Math.random() * 0.2) * fadeOutAlpha;
+                    ctx.strokeStyle = `rgba(150, 220, 255, ${finalOpacity})`;
+                    ctx.lineWidth = baseWidth + Math.random() * 1;
+                    ctx.shadowBlur = baseShadow * fadeOutAlpha;
+                    ctx.shadowColor = `rgba(150, 220, 255, ${0.5 * fadeOutAlpha})`;
+                    ctx.lineCap = 'round';
+                    ctx.lineJoin = 'round';
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(ring1.x, ring1.y);
+                    
+                    const segments = 6;
+                    for (let s = 1; s <= segments; s++) {
+                        const t = s / segments;
+                        const px = ring1.x + (ring2.x - ring1.x) * t;
+                        const py = ring1.y + (ring2.y - ring1.y) * t;
+                        const jitter = (Math.random() - 0.5) * 15 * Math.sin(t * Math.PI);
                         const angle = Math.atan2(ring2.y - ring1.y, ring2.x - ring1.x);
                         
                         ctx.lineTo(
@@ -1143,16 +1359,34 @@ function drawHoverHighlight() {
         }
         if (!foundCombo) {
             stopElectricSound();
+            // Start fade-out instead of immediate clear
+            if (currentMatchingRings && !electricConnectionsFadingOut) {
+                electricConnectionsFadingOut = true;
+                electricConnectionsFadeOutStartTime = Date.now();
+                lastMatchingRings = currentMatchingRings;
+            }
             currentMatchingRings = null;
         }
         return;
     } else if (mouse.dragging >= 0) {
         stopElectricSound();
+        // Start fade-out instead of immediate clear
+        if (currentMatchingRings && !electricConnectionsFadingOut) {
+            electricConnectionsFadingOut = true;
+            electricConnectionsFadeOutStartTime = Date.now();
+            lastMatchingRings = currentMatchingRings;
+        }
         currentMatchingRings = null;
         return;
     }
     
     stopElectricSound();
+    // Start fade-out instead of immediate clear
+    if (currentMatchingRings && !electricConnectionsFadingOut) {
+        electricConnectionsFadingOut = true;
+        electricConnectionsFadeOutStartTime = Date.now();
+        lastMatchingRings = currentMatchingRings;
+    }
     currentMatchingRings = null;
     
     for (let i = 9; i < 12; i++) {
@@ -3684,6 +3918,11 @@ function gameLoop() {
             gameOverExplosionTime += dt;
         }
         
+        // Generate sparkles for connected rings
+        if (!gameState.gameOver && !gameState.pauseGame) {
+            generateConnectionSparkles();
+        }
+        
         // Draw
         drawBackground();
         drawSpawnAreaBackground();
@@ -3691,6 +3930,8 @@ function gameLoop() {
         drawPegs();
         drawDragTrails();
         drawHoverHighlight();
+        drawFadingOutConnections(); // Draw fading out electric connections
+        drawConnectionSparkles(); // Draw sparkles for connected rings
         drawRings();
         drawGameOverRingEffects(); // Draw glow and tremble effects
         drawRipples();
