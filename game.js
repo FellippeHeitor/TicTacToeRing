@@ -29,6 +29,20 @@ let showSettingsModal = false;
 let settingsButtons = [];
 let settingsModalAlpha = 0;
 
+// Confirmation modal state
+let showConfirmModal = false;
+let confirmModalAlpha = 0;
+let confirmMessage = '';
+let confirmCallback = null;
+
+// HUD animation state
+let scoreShake = 0;
+let comboScale = 1;
+let comboAlpha = 0;
+let comboY = 0;
+let highscoreGlow = 0;
+let multiplierPulse = 0;
+
 // Ring colors (10 colors)
 const ringColors = [
     { r: 0, g: 78, b: 249 },     // blue
@@ -89,7 +103,8 @@ let ringImages = {};
 // Initialize pegs
 function initPegs() {
     pegs = [];
-    const spacing = 6;
+    const spacing = 8; // Aumentado para mais espaço
+    const offsetX = 20; // Deslocamento para centralizar melhor
     let l = -(canvas.height / spacing);
     let j = 0;
     
@@ -109,7 +124,7 @@ function initPegs() {
         }
         
         pegs.push({
-            x: canvas.width / 2 + k,
+            x: canvas.width / 2 + k + offsetX,
             y: canvas.height / 2 + l,
             rings: [...emptySet]
         });
@@ -220,13 +235,14 @@ function drawBackground() {
 
 // Draw board divisions
 function drawBoardDivisions() {
-    const spacing = 6;
+    const spacing = 8;
+    const offsetX = 20;
     
     // Game board area
     ctx.strokeStyle = 'rgba(0, 50, 100, 0.3)';
     ctx.lineWidth = 2;
     ctx.strokeRect(
-        canvas.width / 2 - (canvas.width / spacing) * 1.5,
+        canvas.width / 2 - (canvas.width / spacing) * 1.5 + offsetX,
         canvas.height / 2 - (canvas.height / spacing) * 1.5,
         canvas.width / spacing * 3,
         canvas.height / spacing * 3
@@ -312,9 +328,13 @@ function drawText(text, x, y, size = 1, color = '#fff') {
 
 // Draw centered text
 function drawCenteredText(text, y, size = 1, color = '#fff') {
+    ctx.save();
     ctx.font = `${size * 16}px monospace`;
-    const width = ctx.measureText(text).width;
-    drawText(text, (canvas.width - width) / 2, y, size, color);
+    ctx.fillStyle = color;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(text, canvas.width / 2, y);
+    ctx.restore();
 }
 // Helper: rounded rectangle
 function roundRect(ctx, x, y, width, height, radius) {
@@ -331,20 +351,141 @@ function roundRect(ctx, x, y, width, height, radius) {
     ctx.closePath();
 }
 
+// Ease out cubic function
+function easeOutCubic(t) {
+    return 1 - Math.pow(1 - t, 3);
+}
+
 // Draw HUD
 function drawHUD() {
-    // Crown icon (simple)
-    ctx.fillStyle = '#cda100';
-    ctx.fillRect(25, 28, 20, 12);
-    drawText(Math.floor(gameState.visibleHighScore), 52, 40, 1, '#c8c8c8');
+    // Animated background panel for scores
+    ctx.save();
     
-    // Score
-    drawText(Math.floor(gameState.visibleScore), 10, 90, 6, '#fff');
+    // High score panel with glow effect
+    const hsPanel = {
+        x: 15,
+        y: 15,
+        width: 200,
+        height: 50
+    };
     
-    // Multiplier
+    // Glow effect for high score
+    highscoreGlow = Math.sin(Date.now() / 500) * 0.3 + 0.7;
+    ctx.shadowBlur = 15 * highscoreGlow;
+    ctx.shadowColor = '#ffd700';
+    
+    const hsGradient = ctx.createLinearGradient(hsPanel.x, hsPanel.y, hsPanel.x, hsPanel.y + hsPanel.height);
+    hsGradient.addColorStop(0, 'rgba(255, 215, 0, 0.15)');
+    hsGradient.addColorStop(1, 'rgba(184, 134, 11, 0.1)');
+    roundRect(ctx, hsPanel.x, hsPanel.y, hsPanel.width, hsPanel.height, 8);
+    ctx.fillStyle = hsGradient;
+    ctx.fill();
+    
+    ctx.strokeStyle = 'rgba(255, 215, 0, 0.4)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    
+    // Crown emoji
+    ctx.font = '24px Arial';
+    ctx.fillStyle = '#ffd700';
+    ctx.shadowColor = '#ffa500';
+    ctx.shadowBlur = 10 * highscoreGlow;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('👑', 20, hsPanel.y + hsPanel.height / 2);
+    
+    // High score label
+    ctx.shadowBlur = 0;
+    ctx.font = 'bold 10px Arial';
+    ctx.fillStyle = 'rgba(255, 215, 0, 0.7)';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText('RECORDE', 52, hsPanel.y + 10);
+    
+    // High score value
+    ctx.font = 'bold 22px Arial';
+    ctx.fillStyle = '#ffd700';
+    ctx.shadowColor = '#ffa500';
+    ctx.shadowBlur = 5;
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(Math.floor(gameState.visibleHighScore).toString(), 52, hsPanel.y + hsPanel.height - 8);
+    ctx.shadowBlur = 0;
+    
+    // Main score panel with dynamic effects
+    const scorePanel = {
+        x: 10,
+        y: 80,
+        width: 280,
+        height: 120
+    };
+    
+    // Score panel background
+    ctx.shadowBlur = 20;
+    ctx.shadowColor = 'rgba(100, 150, 255, 0.3)';
+    const scoreGradient = ctx.createLinearGradient(scorePanel.x, scorePanel.y, scorePanel.x, scorePanel.y + scorePanel.height);
+    scoreGradient.addColorStop(0, 'rgba(30, 50, 100, 0.3)');
+    scoreGradient.addColorStop(1, 'rgba(20, 30, 60, 0.2)');
+    roundRect(ctx, scorePanel.x, scorePanel.y, scorePanel.width, scorePanel.height, 12);
+    ctx.fillStyle = scoreGradient;
+    ctx.fill();
+    
+    ctx.strokeStyle = 'rgba(100, 150, 255, 0.5)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    
+    // Score label
+    ctx.font = 'bold 12px Arial';
+    ctx.fillStyle = 'rgba(150, 200, 255, 0.9)';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText('PONTUAÇÃO', scorePanel.x + 10, scorePanel.y + 10);
+    
+    // Animated score with shake effect when increasing
+    ctx.save();
+    const scoreX = scorePanel.x + 10 + (Math.random() * scoreShake * 4 - scoreShake * 2);
+    const scoreY = scorePanel.y + 55 + (Math.random() * scoreShake * 4 - scoreShake * 2);
+    
+    // Score glow
+    ctx.shadowColor = '#00ffff';
+    ctx.shadowBlur = 15 + scoreShake * 10;
+    
+    // Main score
+    ctx.font = 'bold 52px Arial';
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(Math.floor(gameState.visibleScore).toString(), scoreX, scoreY);
+    
+    ctx.shadowBlur = 0;
+    ctx.restore();
+    
+    // Multiplier with pulse animation
     if (gameState.multiplier > 1) {
-        drawText(`x${gameState.multiplier}`, 52, 145, 1, '#fff');
+        const multX = scorePanel.x + 10;
+        const multY = scorePanel.y + 95;
+        
+        multiplierPulse = Math.sin(Date.now() / 200) * 0.15 + 1;
+        
+        ctx.save();
+        ctx.translate(multX, multY);
+        ctx.scale(multiplierPulse, multiplierPulse);
+        
+        // Multiplier text with better alignment
+        ctx.font = 'bold 20px Arial';
+        ctx.fillStyle = '#ff5555';
+        ctx.shadowColor = '#ff0000';
+        ctx.shadowBlur = 10;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`×${gameState.multiplier} COMBO!`, 0, 0);
+        
+        ctx.shadowBlur = 0;
+        ctx.restore();
     }
+    
+    ctx.restore();
     
     // Buttons
     drawButtons();
@@ -353,13 +494,14 @@ function drawHUD() {
 // Create main screen buttons
 function createMainButtons() {
     buttons = [
-        { x: canvas.width - 80, y: 20, w: 60, h: 30, text: 'Settings' },
-        { x: canvas.width - 80, y: 60, w: 60, h: 30, text: 'Pause' }
+        { x: canvas.width - 100, y: 20, w: 80, h: 35, text: 'Settings' },
+        { x: canvas.width - 100, y: 65, w: 80, h: 35, text: 'Pause' }
     ];
 }
 
 // Draw buttons
 function drawButtons() {
+    ctx.save();
     buttons.forEach((btn, i) => {
         const isHovered = currentButton === i;
         ctx.fillStyle = isHovered ? 'rgba(67, 172, 183, 0.5)' : 'rgba(50, 50, 50, 0.5)';
@@ -370,9 +512,12 @@ function drawButtons() {
         
         ctx.fillStyle = '#fff';
         ctx.font = '12px monospace';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
         const textWidth = ctx.measureText(btn.text).width;
         ctx.fillText(btn.text, btn.x + (btn.w - textWidth) / 2, btn.y + 20);
     });
+    ctx.restore();
 }
 
 // Check button hover
@@ -420,7 +565,7 @@ function generateNewSets() {
             let thisPeg = newPeg;
             let found = false;
             
-            // Find a board peg with at least one empty slot
+            // Find a board peg with at least one empty slot that hasn't been used yet
             do {
                 const hasEmptySlot = pegs[thisPeg].rings.some(r => r === -1);
                 const notUsed = !pegsUsed.includes(thisPeg);
@@ -431,32 +576,36 @@ function generateNewSets() {
                 }
                 
                 thisPeg = (thisPeg + 1) % 9;
-                if (thisPeg === newPeg) break; // Full circle
+                if (thisPeg === 0) thisPeg = 1; // Skip 0, start from 1
+                if (thisPeg === newPeg) {
+                    // Full circle - no available pegs
+                    thisPeg = 0;
+                    break;
+                }
             } while (true);
             
-            if (found) {
+            if (found && thisPeg > 0) {
                 pegsUsed.push(thisPeg);
             } else {
-                thisPeg = 0; // Will generate random set
+                thisPeg = 0;
             }
             
             // Generate rings based on chosen peg's empty slots
-            // Spawn sets should have 1-2 rings only
             do {
                 pegs[i].rings = [...emptySet];
                 
-                if (found && thisPeg >= 0) {
-                    // Generate based on empty slots in chosen board peg
+                if (thisPeg > 0) {
+                    // Generate ONLY in slots that are empty in the chosen board peg
                     for (let j = 0; j < 3; j++) {
                         if (pegs[thisPeg].rings[j] === -1) {
-                            // 30% chance to add a ring in this position
+                            // 30% chance to add a ring in this empty position
                             if (Math.random() * 100 < 30) {
                                 pegs[i].rings[j] = Math.floor(Math.random() * gameState.maxColors);
                             }
                         }
                     }
                 } else {
-                    // Random generation - pick 1 or 2 random positions
+                    // Fallback: random generation (shouldn't happen often)
                     const numRings = Math.random() < 0.6 ? 2 : 1;
                     const positions = [0, 1, 2].sort(() => Math.random() - 0.5).slice(0, numRings);
                     positions.forEach(pos => {
@@ -465,13 +614,10 @@ function generateNewSets() {
                 }
             } while (pegs[i].rings.every(r => r === -1)); // Can't be completely empty
             
-            // Make sure we don't have all 3 slots filled (max 2 rings per spawn set)
-            const filledCount = pegs[i].rings.filter(r => r >= 0).length;
-            if (filledCount > 2) {
-                // Remove random ring to ensure max 2 rings
-                const filled = [];
-                pegs[i].rings.forEach((r, idx) => { if (r >= 0) filled.push(idx); });
-                const removeIdx = filled[Math.floor(Math.random() * filled.length)];
+            // Make sure we don't have all 3 slots filled (at least 1 must be empty)
+            if (pegs[i].rings.every(r => r >= 0)) {
+                // Remove a random ring to ensure at least 1 empty slot
+                const removeIdx = Math.floor(Math.random() * 3);
                 pegs[i].rings[removeIdx] = -1;
             }
         }
@@ -582,9 +728,15 @@ function checkMatches(pegIndex) {
             pegs[i].rings = [...delPegs[i].rings];
         }
         
-        // Update score
-        gameState.score += totalScore * gameState.multiplier;
+        // Update score with animation trigger
+        const scoreIncrease = totalScore * gameState.multiplier;
+        gameState.score += scoreIncrease;
         gameState.multiplier++;
+        
+        // Trigger screen shake for big scores
+        if (scoreIncrease > 5) {
+            scoreShake = Math.min(2, scoreIncrease / 10);
+        }
         
         // Play sounds
         if (sounds.woosh) playSound(sounds.woosh);
@@ -675,15 +827,33 @@ function checkAvailableMoves() {
 
 // Update score animation
 function updateScore(dt) {
+    const oldScore = gameState.visibleScore;
+    
+    // Smooth easing for score increase
     if (gameState.visibleScore < gameState.score) {
-        gameState.visibleScore += dt * 20;
+        const diff = gameState.score - gameState.visibleScore;
+        gameState.visibleScore += diff * dt * 5;
+        
         if (gameState.visibleScore > gameState.score) {
             gameState.visibleScore = gameState.score;
         }
+        
+        // Trigger shake when score increases significantly
+        if (gameState.visibleScore - oldScore > 5) {
+            scoreShake = 1;
+        }
     }
     
+    // Decay shake effect
+    if (scoreShake > 0) {
+        scoreShake = Math.max(0, scoreShake - dt * 3);
+    }
+    
+    // Smooth high score animation
     if (gameState.visibleHighScore < gameState.highscore) {
-        gameState.visibleHighScore += dt * 20;
+        const diff = gameState.highscore - gameState.visibleHighScore;
+        gameState.visibleHighScore += diff * dt * 3;
+        
         if (gameState.visibleHighScore > gameState.highscore) {
             gameState.visibleHighScore = gameState.highscore;
         }
@@ -759,14 +929,86 @@ function updateAnimations() {
                 drawCircle(pegs[anim.peg].x, pegs[anim.peg].y, k, animColor);
             }
         } else if (anim.type === 'combo' && progress < 1) {
-            const size = Math.floor(map(1 - progress, 0, 0.2, 1, 4));
+            // Smooth elastic bounce animation for combo text
+            let scale, alpha, yOffset;
+            
+            if (progress < 0.3) {
+                // Bounce in
+                const t = progress / 0.3;
+                const bounce = Math.sin(t * Math.PI * 2) * (1 - t) * 0.3;
+                scale = easeOutCubic(t) * (1 + bounce);
+                alpha = easeOutCubic(t);
+                yOffset = (1 - easeOutCubic(t)) * -50;
+            } else if (progress > 0.7) {
+                // Fade out
+                const t = (progress - 0.7) / 0.3;
+                scale = 1 - t * 0.5;
+                alpha = 1 - easeOutCubic(t);
+                yOffset = -t * 30;
+            } else {
+                // Hold
+                const t = (progress - 0.3) / 0.4;
+                scale = 1 + Math.sin(t * Math.PI * 4) * 0.05;
+                alpha = 1;
+                yOffset = 0;
+            }
+            
+            ctx.save();
+            const centerY = canvas.height / 2 + yOffset;
+            
+            // Draw combo background
             const lines = anim.message.split('\n');
-            ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-            ctx.shadowBlur = 10;
-            lines.forEach((line, i) => {
-                drawCenteredText(line, canvas.height / 2 + i * 40 - 20, size, '#fff');
-            });
+            const bgWidth = 400 * scale;
+            const bgHeight = 120 * scale;
+            const bgX = canvas.width / 2 - bgWidth / 2;
+            const bgY = centerY - bgHeight / 2;
+            
+            ctx.globalAlpha = alpha * 0.9;
+            ctx.shadowBlur = 30;
+            ctx.shadowColor = 'rgba(255, 100, 100, 0.8)';
+            
+            const gradient = ctx.createLinearGradient(bgX, bgY, bgX, bgY + bgHeight);
+            gradient.addColorStop(0, 'rgba(255, 50, 50, 0.8)');
+            gradient.addColorStop(0.5, 'rgba(255, 100, 50, 0.6)');
+            gradient.addColorStop(1, 'rgba(255, 150, 50, 0.8)');
+            
+            roundRect(ctx, bgX, bgY, bgWidth, bgHeight, 20);
+            ctx.fillStyle = gradient;
+            ctx.fill();
+            
+            ctx.strokeStyle = 'rgba(255, 200, 100, 0.9)';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            
             ctx.shadowBlur = 0;
+            
+            // Draw text with scale
+            ctx.globalAlpha = alpha;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            // Calculate centered Y position for both lines
+            const line1Y = bgY + bgHeight / 2 - 20;
+            const line2Y = bgY + bgHeight / 2 + 20;
+            
+            // First line (message)
+            ctx.font = `bold ${Math.floor(36 * scale)}px Arial`;
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowColor = '#ff5500';
+            ctx.shadowBlur = 15;
+            ctx.fillText(lines[0], canvas.width / 2, line1Y);
+            
+            // Second line (multiplier)
+            if (lines[1]) {
+                ctx.font = `bold ${Math.floor(48 * scale)}px Arial`;
+                ctx.fillStyle = '#ffff00';
+                ctx.shadowColor = '#ff0000';
+                ctx.shadowBlur = 20;
+                ctx.fillText(lines[1], canvas.width / 2, line2Y);
+            }
+            
+            ctx.shadowBlur = 0;
+            ctx.restore();
         }
     });
     
@@ -794,18 +1036,27 @@ canvas.addEventListener('mousedown', (e) => {
     mouse.clicked = false;
     
     // Check if clicking on spawn area ring
-    for (let i = 9; i < 12; i++) {
-        if (dist(pegs[i].x, pegs[i].y, mouse.x, mouse.y) <= 40) {
-            if (!pegs[i].rings.every(r => r === -1)) {
-                mouse.dragging = i;
-                break;
+    if (pegs.length >= 12) {
+        for (let i = 9; i < 12; i++) {
+            if (dist(pegs[i].x, pegs[i].y, mouse.x, mouse.y) <= 40) {
+                if (!pegs[i].rings.every(r => r === -1)) {
+                    mouse.dragging = i;
+                    break;
+                }
             }
         }
     }
 });
 
 canvas.addEventListener('mouseup', (e) => {
-    // Check settings modal first
+    // Check confirmation modal first
+    if (handleConfirmClick(mouse.x, mouse.y)) {
+        mouse.down = false;
+        mouse.dragging = -1;
+        return;
+    }
+    
+    // Check settings modal
     if (handleSettingsClick(mouse.x, mouse.y)) {
         mouse.down = false;
         mouse.dragging = -1;
@@ -1033,6 +1284,174 @@ function drawSettingsModal() {
     });
 }
 
+// Draw confirmation modal
+function drawConfirmModal() {
+    if (!showConfirmModal && confirmModalAlpha <= 0) return;
+    
+    // Animate alpha
+    if (showConfirmModal && confirmModalAlpha < 1) {
+        confirmModalAlpha = Math.min(1, confirmModalAlpha + 0.1);
+    } else if (!showConfirmModal && confirmModalAlpha > 0) {
+        confirmModalAlpha = Math.max(0, confirmModalAlpha - 0.1);
+    }
+    
+    // Semi-transparent overlay
+    ctx.fillStyle = `rgba(0, 0, 0, ${0.8 * confirmModalAlpha})`;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Modal dimensions
+    const modalWidth = 450;
+    const modalHeight = 200;
+    const modalX = (canvas.width - modalWidth) / 2;
+    const modalY = (canvas.height - modalHeight) / 2;
+    
+    // Modal background with gradient
+    const gradient = ctx.createLinearGradient(modalX, modalY, modalX, modalY + modalHeight);
+    gradient.addColorStop(0, `rgba(40, 40, 60, ${confirmModalAlpha})`);
+    gradient.addColorStop(1, `rgba(30, 30, 45, ${confirmModalAlpha})`);
+    
+    ctx.shadowBlur = 40 * confirmModalAlpha;
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+    roundRect(ctx, modalX, modalY, modalWidth, modalHeight, 20);
+    ctx.fillStyle = gradient;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    
+    // Modal border
+    ctx.strokeStyle = `rgba(255, 200, 100, ${0.6 * confirmModalAlpha})`;
+    ctx.lineWidth = 2;
+    ctx.shadowBlur = 10 * confirmModalAlpha;
+    ctx.shadowColor = `rgba(255, 200, 100, ${confirmModalAlpha})`;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    
+    // Message text
+    ctx.font = 'bold 18px Arial';
+    ctx.fillStyle = `rgba(255, 255, 255, ${confirmModalAlpha})`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    
+    const lines = confirmMessage.split('\n');
+    lines.forEach((line, i) => {
+        ctx.fillText(line, canvas.width / 2, modalY + 40 + i * 25);
+    });
+    
+    // Buttons
+    const btnWidth = 120;
+    const btnHeight = 45;
+    const btnSpacing = 20;
+    const btn1X = modalX + (modalWidth / 2) - btnWidth - btnSpacing / 2;
+    const btn2X = modalX + (modalWidth / 2) + btnSpacing / 2;
+    const btnY = modalY + modalHeight - 70;
+    
+    const isHover1 = mouseX >= btn1X && mouseX <= btn1X + btnWidth &&
+                     mouseY >= btnY && mouseY <= btnY + btnHeight;
+    const isHover2 = mouseX >= btn2X && mouseX <= btn2X + btnWidth &&
+                     mouseY >= btnY && mouseY <= btnY + btnHeight;
+    
+    // Confirm button (green)
+    ctx.shadowBlur = isHover1 ? 20 * confirmModalAlpha : 10 * confirmModalAlpha;
+    ctx.shadowColor = isHover1 ? 'rgba(100, 255, 100, 0.8)' : 'rgba(0, 0, 0, 0.5)';
+    
+    const btn1Gradient = ctx.createLinearGradient(btn1X, btnY, btn1X, btnY + btnHeight);
+    if (isHover1) {
+        btn1Gradient.addColorStop(0, `rgba(80, 200, 80, ${confirmModalAlpha})`);
+        btn1Gradient.addColorStop(1, `rgba(50, 150, 50, ${confirmModalAlpha})`);
+    } else {
+        btn1Gradient.addColorStop(0, `rgba(60, 150, 60, ${confirmModalAlpha})`);
+        btn1Gradient.addColorStop(1, `rgba(40, 100, 40, ${confirmModalAlpha})`);
+    }
+    
+    roundRect(ctx, btn1X, btnY, btnWidth, btnHeight, 10);
+    ctx.fillStyle = btn1Gradient;
+    ctx.fill();
+    ctx.strokeStyle = `rgba(100, 255, 100, ${0.6 * confirmModalAlpha})`;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    
+    ctx.font = 'bold 18px Arial';
+    ctx.fillStyle = `rgba(255, 255, 255, ${confirmModalAlpha})`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('✓ Sim', btn1X + btnWidth / 2, btnY + btnHeight / 2);
+    
+    // Cancel button (red)
+    ctx.shadowBlur = isHover2 ? 20 * confirmModalAlpha : 10 * confirmModalAlpha;
+    ctx.shadowColor = isHover2 ? 'rgba(255, 100, 100, 0.8)' : 'rgba(0, 0, 0, 0.5)';
+    
+    const btn2Gradient = ctx.createLinearGradient(btn2X, btnY, btn2X, btnY + btnHeight);
+    if (isHover2) {
+        btn2Gradient.addColorStop(0, `rgba(200, 80, 80, ${confirmModalAlpha})`);
+        btn2Gradient.addColorStop(1, `rgba(150, 50, 50, ${confirmModalAlpha})`);
+    } else {
+        btn2Gradient.addColorStop(0, `rgba(150, 60, 60, ${confirmModalAlpha})`);
+        btn2Gradient.addColorStop(1, `rgba(100, 40, 40, ${confirmModalAlpha})`);
+    }
+    
+    roundRect(ctx, btn2X, btnY, btnWidth, btnHeight, 10);
+    ctx.fillStyle = btn2Gradient;
+    ctx.fill();
+    ctx.strokeStyle = `rgba(255, 100, 100, ${0.6 * confirmModalAlpha})`;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    
+    ctx.font = 'bold 18px Arial';
+    ctx.fillStyle = `rgba(255, 255, 255, ${confirmModalAlpha})`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('✕ Não', btn2X + btnWidth / 2, btnY + btnHeight / 2);
+}
+
+// Handle confirmation modal clicks
+function handleConfirmClick(x, y) {
+    if (!showConfirmModal || confirmModalAlpha < 0.9) return false;
+    
+    const modalWidth = 450;
+    const modalHeight = 200;
+    const modalX = (canvas.width - modalWidth) / 2;
+    const modalY = (canvas.height - modalHeight) / 2;
+    
+    const btnWidth = 120;
+    const btnHeight = 45;
+    const btnSpacing = 20;
+    const btn1X = modalX + (modalWidth / 2) - btnWidth - btnSpacing / 2;
+    const btn2X = modalX + (modalWidth / 2) + btnSpacing / 2;
+    const btnY = modalY + modalHeight - 70;
+    
+    // Check confirm button
+    if (x >= btn1X && x <= btn1X + btnWidth &&
+        y >= btnY && y <= btnY + btnHeight) {
+        showConfirmModal = false;
+        if (confirmCallback) {
+            confirmCallback(true);
+            confirmCallback = null;
+        }
+        return true;
+    }
+    
+    // Check cancel button
+    if (x >= btn2X && x <= btn2X + btnWidth &&
+        y >= btnY && y <= btnY + btnHeight) {
+        showConfirmModal = false;
+        if (confirmCallback) {
+            confirmCallback(false);
+            confirmCallback = null;
+        }
+        return true;
+    }
+    
+    return false;
+}
+
+// Show confirmation dialog
+function showConfirm(message, callback) {
+    confirmMessage = message;
+    confirmCallback = callback;
+    showConfirmModal = true;
+}
+
 // Handle settings button clicks
 function handleSettingsClick(x, y) {
     if (!showSettingsModal || settingsModalAlpha < 0.9) return false;
@@ -1052,7 +1471,29 @@ function handleSettingsClick(x, y) {
             } else if (btn.action === 'sfx') {
                 gameState.sfx = !gameState.sfx;
             } else if (btn.action === 'mode') {
-                gameState.mode = gameState.mode === MODE_NORMAL ? MODE_EASIER : MODE_NORMAL;
+                // Confirm mode change with user
+                const newMode = gameState.mode === MODE_NORMAL ? 'Fácil' : 'Normal';
+                const confirmMsg = `Trocar para modo ${newMode}?\n\nO jogo será reiniciado.`;
+                
+                showConfirm(confirmMsg, (confirmed) => {
+                    if (confirmed) {
+                        // Change mode
+                        gameState.mode = gameState.mode === MODE_NORMAL ? MODE_EASIER : MODE_NORMAL;
+                        
+                        // Reset game state
+                        gameState.score = 0;
+                        gameState.visibleScore = 0;
+                        gameState.level = 0;
+                        gameState.multiplier = 1;
+                        gameState.maxColors = 3;
+                        gameState.gameOver = false;
+                        
+                        // Close settings and restart
+                        toggleSettings();
+                        initGame();
+                    }
+                });
+                return true;
             } else if (btn.action === 'close') {
                 toggleSettings();
                 return true;
@@ -1115,10 +1556,26 @@ function updateIntro(dt) {
         alpha = Math.max(0, 1 - (introTime - 4.5) / 1.5);
     }
     
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    
+    // Title
+    ctx.font = 'bold 32px monospace';
     ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
-    drawCenteredText('Tic Tac Toe', canvas.height / 2 - 30, 2, ctx.fillStyle);
-    drawCenteredText('Rings', canvas.height / 2 + 10, 7, ctx.fillStyle);
-    drawCenteredText('Fellippe Heitor, 2020', canvas.height - 60, 1, ctx.fillStyle);
+    ctx.fillText('Tic Tac Toe', canvas.width / 2, canvas.height / 2 - 60);
+    
+    // Rings (large)
+    ctx.font = 'bold 112px monospace';
+    ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+    ctx.fillText('Rings', canvas.width / 2, canvas.height / 2 + 20);
+    
+    // Author
+    ctx.font = '16px monospace';
+    ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.7})`;
+    ctx.fillText('Fellippe Heitor, 2020', canvas.width / 2, canvas.height - 60);
+    
+    ctx.restore();
     
     if (introTime > 6 || mouse.clicked) {
         showIntro = false;
@@ -1129,6 +1586,12 @@ function updateIntro(dt) {
 // Init game
 function initGame() {
     initPegs();
+    
+    // Reset spawn rings
+    for (let i = 9; i < 12; i++) {
+        pegs[i].rings = [...emptySet];
+    }
+    
     createMainButtons();
     addParticles(canvas.width / 2, canvas.height / 2, 500, { r: 255, g: 255, b: 255 });
     generateNewSets();
@@ -1179,6 +1642,11 @@ function gameLoop() {
         // Draw settings modal on top
         if (showSettingsModal || settingsModalAlpha > 0) {
             drawSettingsModal();
+        }
+        
+        // Draw confirmation modal on top of everything
+        if (showConfirmModal || confirmModalAlpha > 0) {
+            drawConfirmModal();
         }
         
         // Game over
