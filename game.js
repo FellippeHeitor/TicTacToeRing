@@ -1502,10 +1502,45 @@ function drawHoverHighlight() {
 
 // Draw rings on pegs
 function drawRings() {
+    // First, draw return animations (so they appear on top)
+    const now = Date.now();
+    animations.forEach(anim => {
+        if (anim.type === 'return') {
+            const elapsed = now - anim.startTime;
+            const progress = Math.min(1, elapsed / anim.duration);
+            
+            // Use easeOutBack for a spring-like effect
+            const easeProgress = 1 - Math.pow(1 - progress, 3);
+            
+            // Interpolate position
+            const x = anim.startX + (anim.endX - anim.startX) * easeProgress;
+            const y = anim.startY + (anim.endY - anim.startY) * easeProgress;
+            
+            // Draw the returning rings
+            for (let ringIdx = 0; ringIdx < 3; ringIdx++) {
+                const colorIndex = anim.rings[ringIdx];
+                if (colorIndex >= 0) {
+                    const size = 3 - ringIdx;
+                    drawRing(x, y, size, colorIndex, false);
+                }
+            }
+        }
+    });
+    
     for (let i = 0; i < pegs.length; i++) {
         const peg = pegs[i];
         let x = peg.x;
         let y = peg.y;
+        
+        // Check if this peg is part of a return animation
+        const isReturning = animations.some(anim => 
+            anim.type === 'return' && anim.spawnPegIdx === i
+        );
+        
+        // If this peg is returning, skip drawing its rings (animation draws them)
+        if (isReturning) {
+            continue;
+        }
         
         // If dragging this peg, move to mouse
         if (mouse.dragging === i) {
@@ -2364,7 +2399,18 @@ function updateAnimations() {
         const elapsed = now - anim.startTime;
         const progress = Math.min(1, elapsed / anim.duration);
         
-        if (anim.type === 'spawn') {
+        if (anim.type === 'return') {
+            // Animate rings returning to spawn area
+            // This is handled in drawRings function
+            if (progress >= 1) {
+                // Animation complete, restore rings to spawn peg
+                for (let j = 0; j < 3; j++) {
+                    if (anim.rings[j] >= 0) {
+                        pegs[anim.spawnPegIdx].rings[j] = anim.rings[j];
+                    }
+                }
+            }
+        } else if (anim.type === 'spawn') {
             const alpha = Math.sin(progress * Math.PI) * 0.5;
             ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
             ctx.lineWidth = 2;
@@ -2694,6 +2740,27 @@ canvas.addEventListener('mouseup', (e) => {
                 break;
             }
         }
+        
+        // If not placed on board, animate return to spawn
+        if (!placed) {
+            if (sounds.fail) playSound(sounds.fail);
+            
+            // Store the rings and create return animation
+            const dragSet = pegs[mouse.dragging].rings;
+            animations.push({
+                type: 'return',
+                spawnPegIdx: mouse.dragging,
+                startX: mouse.x,
+                startY: mouse.y,
+                endX: pegs[mouse.dragging].x,
+                endY: pegs[mouse.dragging].y,
+                rings: [...dragSet],
+                startTime: Date.now(),
+                duration: 400
+            });
+            
+            // Don't clear rings yet - animation will handle it
+        }
     } else {
         // Check button clicks
         buttons.forEach((btn, i) => {
@@ -2860,9 +2927,25 @@ canvas.addEventListener('touchend', (e) => {
             }
         }
         
-        // If not placed on board, return to spawn
+        // If not placed on board, animate return to spawn
         if (!placed) {
             if (sounds.fail) playSound(sounds.fail);
+            
+            // Store the rings and create return animation
+            const dragSet = pegs[mouse.dragging].rings;
+            animations.push({
+                type: 'return',
+                spawnPegIdx: mouse.dragging,
+                startX: mouse.x,
+                startY: mouse.y,
+                endX: pegs[mouse.dragging].x,
+                endY: pegs[mouse.dragging].y,
+                rings: [...dragSet],
+                startTime: Date.now(),
+                duration: 400
+            });
+            
+            // Don't clear rings yet - animation will handle it
         }
     } else {
         // Check button clicks
