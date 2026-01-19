@@ -24,7 +24,8 @@ let gameState = {
     sfxVolume: 0.7,
     prevMusicVolume: 0.7,
     prevSfxVolume: 0.7,
-    pausedMusicVolume: 0
+    pausedMusicVolume: 0,
+    electricConnections: true
 };
 
 // LocalStorage functions
@@ -35,7 +36,8 @@ function saveSettings() {
             sfxVolume: gameState.sfxVolume,
             prevMusicVolume: gameState.prevMusicVolume,
             prevSfxVolume: gameState.prevSfxVolume,
-            mode: gameState.mode
+            mode: gameState.mode,
+            electricConnections: gameState.electricConnections
         };
         localStorage.setItem('tictactoering_settings', JSON.stringify(settings));
     } catch (e) {
@@ -53,6 +55,7 @@ function loadSettings() {
             gameState.prevMusicVolume = settings.prevMusicVolume ?? 0.7;
             gameState.prevSfxVolume = settings.prevSfxVolume ?? 0.7;
             gameState.mode = settings.mode ?? MODE_NORMAL;
+            gameState.electricConnections = settings.electricConnections ?? true;
         }
     } catch (e) {
         console.log('Could not load settings:', e);
@@ -356,8 +359,180 @@ function drawPegs() {
 }
 
 // Hover highlight effect
+// Draw electric connections between matching rings
+function drawElectricConnections(comboInfo, dragPegIndex, targetPegIndex) {
+    if (!comboInfo.hasCombo) return;
+    
+    const time = Date.now() / 200; // Slower pulsation
+    const dragX = mouse.x;
+    const dragY = mouse.y;
+    const dragSet = pegs[dragPegIndex].rings;
+    
+    // Calculate distance factor (0 to 1, where 1 is closest)
+    const targetPeg = pegs[targetPegIndex];
+    const distance = dist(dragX, dragY, targetPeg.x, targetPeg.y);
+    const maxDistance = 300; // Maximum distance to show effect
+    const distanceFactor = Math.max(0, 1 - (distance / maxDistance));
+    const intensity = distanceFactor * distanceFactor; // Squared for more dramatic falloff
+    
+    ctx.save();
+    
+    // Group matching rings by color for proper connections
+    const ringsByColor = {};
+    comboInfo.matchingRings.forEach(match => {
+        if (!ringsByColor[match.color]) {
+            ringsByColor[match.color] = [];
+        }
+        
+        // Check if this ring is being dragged
+        const isDraggingThisRing = dragSet[match.ringIdx] === match.color;
+        
+        if (isDraggingThisRing) {
+            ringsByColor[match.color].push({
+                x: dragX,
+                y: dragY,
+                pegIdx: match.pegIdx,
+                ringIdx: match.ringIdx,
+                isDragged: true
+            });
+        } else {
+            const targetPeg = pegs[match.pegIdx];
+            ringsByColor[match.color].push({
+                x: targetPeg.x,
+                y: targetPeg.y,
+                pegIdx: match.pegIdx,
+                ringIdx: match.ringIdx,
+                isDragged: false
+            });
+        }
+    });
+    
+    // Draw lightning connections between ALL rings of the same color
+    Object.values(ringsByColor).forEach(rings => {
+        // Draw connections between every pair of rings
+        for (let i = 0; i < rings.length; i++) {
+            for (let j = i + 1; j < rings.length; j++) {
+                const ring1 = rings[i];
+                const ring2 = rings[j];
+                
+                // Determine if this connection involves the dragged ring
+                const involvesDrag = ring1.isDragged || ring2.isDragged;
+                
+                // Scale bolt properties based on distance
+                const boltIntensity = involvesDrag ? intensity : 1;
+                const numBolts = involvesDrag ? Math.floor(1 + intensity * 4) : 2; // 1-5 bolts when dragging
+                const baseOpacity = involvesDrag ? 0.3 + intensity * 0.7 : 0.6;
+                const baseWidth = involvesDrag ? 1 + intensity * 3 : 2;
+                const baseShadow = involvesDrag ? 10 + intensity * 20 : 15;
+                
+                for (let b = 0; b < numBolts; b++) {
+                    // Scale opacity and width based on intensity
+                    ctx.strokeStyle = `rgba(150, 220, 255, ${baseOpacity + Math.random() * 0.2})`;
+                    ctx.lineWidth = baseWidth + Math.random() * 1;
+                    ctx.shadowBlur = baseShadow;
+                    ctx.shadowColor = `rgba(150, 220, 255, ${0.5 + intensity * 0.4})`;
+                    ctx.lineCap = 'round';
+                    ctx.lineJoin = 'round';
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(ring1.x, ring1.y);
+                    
+                    // Create jagged lightning path - more segments when stronger
+                    const segments = involvesDrag ? Math.floor(4 + intensity * 4) : 6;
+                    for (let s = 1; s <= segments; s++) {
+                        const t = s / segments;
+                        const px = ring1.x + (ring2.x - ring1.x) * t;
+                        const py = ring1.y + (ring2.y - ring1.y) * t;
+                        const jitter = (Math.random() - 0.5) * (15 + intensity * 15) * Math.sin(t * Math.PI);
+                        const angle = Math.atan2(ring2.y - ring1.y, ring2.x - ring1.x);
+                        
+                        ctx.lineTo(
+                            px + Math.cos(angle + Math.PI / 2) * jitter,
+                            py + Math.sin(angle + Math.PI / 2) * jitter
+                        );
+                    }
+                    
+                    ctx.stroke();
+                }
+            }
+        }
+        
+        // Draw glows at each ring position
+        rings.forEach((ring, idx) => {
+            const ringSize = 3 - ring.ringIdx;
+            const ringRadius = ringSize * 7;
+            const glowIntensity = ring.isDragged ? intensity : 0.5;
+            const glowRadius = ringRadius + 12 + Math.sin(time * 1.5 + idx) * 3 + glowIntensity * 10;
+            
+            // Outer glow - more translucent, scales with intensity
+            const ringGlow = ctx.createRadialGradient(
+                ring.x, ring.y, ringRadius - 5,
+                ring.x, ring.y, glowRadius
+            );
+            const glowAlpha = 0.15 + glowIntensity * 0.25;
+            ringGlow.addColorStop(0, `rgba(150, 220, 255, ${glowAlpha + Math.sin(time * 1.5 + idx * 0.5) * 0.1})`);
+            ringGlow.addColorStop(0.6, `rgba(100, 200, 255, ${glowAlpha * 0.5})`);
+            ringGlow.addColorStop(1, 'rgba(100, 200, 255, 0)');
+            ctx.fillStyle = ringGlow;
+            ctx.beginPath();
+            ctx.arc(ring.x, ring.y, glowRadius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Bright inner core - more translucent, scales with intensity
+            if (ring.isDragged) {
+                const coreRadius = 20 + intensity * 15;
+                const coreGlow = ctx.createRadialGradient(ring.x, ring.y, 0, ring.x, ring.y, coreRadius);
+                const coreAlpha = 0.2 + intensity * 0.4;
+                coreGlow.addColorStop(0, `rgba(200, 240, 255, ${coreAlpha + Math.sin(time * 1.2) * 0.15})`);
+                coreGlow.addColorStop(1, 'rgba(150, 220, 255, 0)');
+                ctx.fillStyle = coreGlow;
+                ctx.beginPath();
+                ctx.arc(ring.x, ring.y, coreRadius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        });
+    });
+    
+    // Draw pulsing glow at each matching peg - scales with intensity
+    comboInfo.matchingPegs.forEach((pegIdx, idx) => {
+        const peg = pegs[pegIdx];
+        const isTarget = pegIdx === targetPegIndex;
+        const pegIntensity = isTarget ? intensity : 0.5;
+        const pulseRadius = 45 + pegIntensity * 20 + Math.sin(time * 1.2 + idx * 0.7) * 8;
+        
+        const pegGlow = ctx.createRadialGradient(peg.x, peg.y, 15, peg.x, peg.y, pulseRadius);
+        const pegAlpha = 0.1 + pegIntensity * 0.2;
+        pegGlow.addColorStop(0, `rgba(100, 200, 255, ${pegAlpha})`);
+        pegGlow.addColorStop(0.5, `rgba(150, 220, 255, ${pegAlpha * 0.5})`);
+        pegGlow.addColorStop(1, 'rgba(200, 240, 255, 0)');
+        
+        ctx.fillStyle = pegGlow;
+        ctx.beginPath();
+        ctx.arc(peg.x, peg.y, pulseRadius, 0, Math.PI * 2);
+        ctx.fill();
+    });
+    
+    ctx.shadowBlur = 0;
+    ctx.restore();
+}
+
 function drawHoverHighlight() {
-    if (mouse.dragging >= 0) return;
+    // Check for combo effect when dragging
+    if (mouse.dragging >= 0 && gameState.electricConnections) {
+        // Check each board peg for potential combo
+        for (let i = 0; i < 9; i++) {
+            if (dist(pegs[i].x, pegs[i].y, mouse.x, mouse.y) <= 40) {
+                const comboInfo = wouldCreateCombo(i, mouse.dragging);
+                if (comboInfo.hasCombo) {
+                    drawElectricConnections(comboInfo, mouse.dragging, i);
+                }
+                break;
+            }
+        }
+        return;
+    } else if (mouse.dragging >= 0) {
+        return;
+    }
     
     for (let i = 9; i < 12; i++) {
         if (pegs[i].rings.every(r => r === -1)) continue;
@@ -719,6 +894,88 @@ function generateNewSets() {
             duration: 1000
         });
     }
+}
+
+// Check if placing would create a combo (without actually placing)
+// Returns object with: { hasCombo: boolean, matchingPegs: [pegIndexes], matchingRings: [{pegIdx, ringIdx, color}] }
+function wouldCreateCombo(targetPegIndex, dragPegIndex) {
+    if (targetPegIndex < 0 || targetPegIndex >= 9 || dragPegIndex < 9 || dragPegIndex >= 12) {
+        return { hasCombo: false, matchingPegs: [], matchingRings: [] };
+    }
+    
+    // Simulate placement
+    const targetSet = [...pegs[targetPegIndex].rings];
+    const dragSet = pegs[dragPegIndex].rings;
+    
+    // Check if can place
+    for (let j = 0; j < 3; j++) {
+        if (dragSet[j] >= 0 && targetSet[j] >= 0) {
+            return { hasCombo: false, matchingPegs: [], matchingRings: [] };
+        }
+    }
+    
+    // Simulate the placement
+    for (let j = 0; j < 3; j++) {
+        if (dragSet[j] >= 0) {
+            targetSet[j] = dragSet[j];
+        }
+    }
+    
+    let matchingPegs = [];
+    let matchingRings = [];
+    
+    // Check if this creates a match on the peg (3 same color)
+    if (targetSet[0] >= 0 && targetSet[0] === targetSet[1] && targetSet[1] === targetSet[2]) {
+        matchingPegs.push(targetPegIndex);
+        for (let j = 0; j < 3; j++) {
+            matchingRings.push({ pegIdx: targetPegIndex, ringIdx: j, color: targetSet[j] });
+        }
+        return { hasCombo: true, matchingPegs, matchingRings };
+    }
+    
+    // Check lines
+    const lineConfigs = [
+        [[0, 1, 2], [3, 4, 5], [6, 7, 8]], // Horizontal
+        [[0, 3, 6], [1, 4, 7], [2, 5, 8]], // Vertical
+        [[0, 4, 8], [2, 4, 6]]              // Diagonals
+    ];
+    
+    for (let configLines of lineConfigs) {
+        for (let line of configLines) {
+            if (!line.includes(targetPegIndex)) continue;
+            
+            // Check if line would create a match
+            const simulatedPegs = pegs.slice(0, 9).map(p => ({ rings: [...p.rings] }));
+            simulatedPegs[targetPegIndex].rings = targetSet;
+            
+            const peg0Colors = simulatedPegs[line[0]].rings.filter(c => c >= 0);
+            const peg1Colors = simulatedPegs[line[1]].rings.filter(c => c >= 0);
+            const peg2Colors = simulatedPegs[line[2]].rings.filter(c => c >= 0);
+            
+            const commonColors = peg0Colors.filter(color => 
+                peg1Colors.includes(color) && peg2Colors.includes(color)
+            );
+            
+            if (commonColors.length > 0) {
+                // Collect all matching rings
+                line.forEach(pegIdx => {
+                    if (!matchingPegs.includes(pegIdx)) matchingPegs.push(pegIdx);
+                    for (let ringIdx = 0; ringIdx < 3; ringIdx++) {
+                        const ringColor = simulatedPegs[pegIdx].rings[ringIdx];
+                        if (commonColors.includes(ringColor)) {
+                            matchingRings.push({ pegIdx, ringIdx, color: ringColor });
+                        }
+                    }
+                });
+            }
+        }
+    }
+    
+    return { 
+        hasCombo: matchingRings.length > 0, 
+        matchingPegs, 
+        matchingRings 
+    };
 }
 
 // Check for matches
@@ -1276,7 +1533,7 @@ function toggleSettings() {
 // Create settings buttons
 function createSettingsButtons() {
     const modalWidth = 500;
-    const modalHeight = 400;
+    const modalHeight = 480;
     const modalX = (canvas.width - modalWidth) / 2;
     const modalY = (canvas.height - modalHeight) / 2;
     
@@ -1332,12 +1589,20 @@ function createSettingsButtons() {
             y: y + spacing * 2,
             width: buttonWidth,
             height: buttonHeight,
+            label: `⚡ Conexões Elétricas: ${gameState.electricConnections ? 'ON' : 'OFF'}`,
+            action: 'electric'
+        },
+        {
+            x: startX,
+            y: y + spacing * 3,
+            width: buttonWidth,
+            height: buttonHeight,
             label: `⚔ Modo: ${gameState.mode === MODE_NORMAL ? 'Normal' : 'Fácil'}`,
             action: 'mode'
         },
         {
             x: startX,
-            y: y + spacing * 3,
+            y: y + spacing * 4,
             width: buttonWidth,
             height: buttonHeight,
             label: '✕ Fechar',
@@ -1363,7 +1628,7 @@ function drawSettingsModal() {
     
     // Modal dimensions
     const modalWidth = 500;
-    const modalHeight = 400;
+    const modalHeight = 480;
     const modalX = (canvas.width - modalWidth) / 2;
     const modalY = (canvas.height - modalHeight) / 2;
     
@@ -2007,7 +2272,13 @@ function handleSettingsClick(x, y) {
             if (x >= btn.x && x <= btn.x + btn.width &&
                 y >= btn.y && y <= btn.y + btn.height) {
                 
-                if (btn.action === 'mode') {
+                if (btn.action === 'electric') {
+                    // Toggle electric connections
+                    gameState.electricConnections = !gameState.electricConnections;
+                    saveSettings();
+                    createSettingsButtons();
+                    return true;
+                } else if (btn.action === 'mode') {
                     // Confirm mode change with user
                     const newMode = gameState.mode === MODE_NORMAL ? 'Fácil' : 'Normal';
                     const confirmMsg = `Trocar para modo ${newMode}?\n\nO jogo será reiniciado.`;
