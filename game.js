@@ -723,10 +723,10 @@ function drawElectricConnections(comboInfo, dragPegIndex, targetPegIndex) {
             ringsByColor[match.color] = [];
         }
         
-        // Check if this ring is being dragged
-        const isDraggingThisRing = dragSet[match.ringIdx] === match.color;
+        // Check if this ring belongs to the peg being dragged
+        const isDraggingThisPeg = match.pegIdx === dragPegIndex;
         
-        if (isDraggingThisRing) {
+        if (isDraggingThisPeg) {
             ringsByColor[match.color].push({
                 x: dragX,
                 y: dragY,
@@ -1057,7 +1057,7 @@ function drawHUD() {
     ctx.fillStyle = 'rgba(150, 200, 255, 0.9)';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.fillText('PONTUAÇÃO', scorePanel.x + 10, scorePanel.y + 10);
+    ctx.fillText('SCORE', scorePanel.x + 10, scorePanel.y + 10);
     
     // Animated score with shake effect when increasing
     ctx.save();
@@ -1293,7 +1293,7 @@ function wouldCreateCombo(targetPegIndex, dragPegIndex) {
         for (let j = 0; j < 3; j++) {
             matchingRings.push({ pegIdx: targetPegIndex, ringIdx: j, color: targetSet[j] });
         }
-        return { hasCombo: true, matchingPegs, matchingRings };
+        // Don't return yet - continue checking lines in case this peg is also part of a line combo
     }
     
     // Check lines
@@ -2326,7 +2326,7 @@ function drawConfirmModal() {
     ctx.fillStyle = `rgba(255, 255, 255, ${confirmModalAlpha})`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('✓ Sim', btn1X + btnWidth / 2, btnY + btnHeight / 2);
+    ctx.fillText('✓ Yes', btn1X + btnWidth / 2, btnY + btnHeight / 2);
     
     // Cancel button (red)
     ctx.shadowBlur = isHover2 ? 20 * confirmModalAlpha : 10 * confirmModalAlpha;
@@ -2353,7 +2353,7 @@ function drawConfirmModal() {
     ctx.fillStyle = `rgba(255, 255, 255, ${confirmModalAlpha})`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('✕ Não', btn2X + btnWidth / 2, btnY + btnHeight / 2);
+    ctx.fillText('✕ No', btn2X + btnWidth / 2, btnY + btnHeight / 2);
 }
 
 // Handle confirmation modal clicks
@@ -2478,7 +2478,7 @@ function drawGameOverModal() {
     // Score
     ctx.font = 'bold 24px Arial';
     ctx.fillStyle = `rgba(255, 255, 255, ${gameOverModalAlpha})`;
-    ctx.fillText(`Pontuação Final: ${Math.floor(gameState.score)}`, canvas.width / 2, modalY + 120);
+    ctx.fillText(`Final Score: ${Math.floor(gameState.score)}`, canvas.width / 2, modalY + 120);
     
     // High score message
     if (gameState.score >= gameState.highscore) {
@@ -2486,7 +2486,7 @@ function drawGameOverModal() {
         ctx.fillStyle = `rgba(255, 215, 0, ${gameOverModalAlpha})`;
         ctx.shadowBlur = 10 * gameOverModalAlpha;
         ctx.shadowColor = 'rgba(255, 165, 0, 0.8)';
-        ctx.fillText('🎉 Novo Recorde! 🎉', canvas.width / 2, modalY + 160);
+        ctx.fillText('🎉 New High Score! 🎉', canvas.width / 2, modalY + 160);
         ctx.shadowBlur = 0;
     }
     
@@ -2531,7 +2531,7 @@ function drawGameOverModal() {
     ctx.fillStyle = `rgba(255, 255, 255, ${gameOverModalAlpha})`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('Jogar de Novo', btn1X + btnWidth / 2, btnY + btnHeight / 2);
+    ctx.fillText('Play Again', btn1X + btnWidth / 2, btnY + btnHeight / 2);
     
     // Menu button
     const menuHovered = mouseX >= btn2X && mouseX <= btn2X + btnWidth &&
