@@ -1431,134 +1431,148 @@ function wouldCreateCombo(targetPegIndex, dragPegIndex) {
 
 // Check for matches
 function checkMatches(pegIndex) {
-    let totalScore = 0;
+    let scored = false;
     let totalMatches = 0;
-    let anyScored = false;
+    let previousScore = gameState.score;
     
-    // Keep checking for matches until no more are found (for cascading combos)
-    let keepChecking = true;
-    while (keepChecking) {
-        let scored = false;
-        
-        // Create backup copies for deletion marking
-        let delPegs = pegs.slice(0, 9).map(p => ({ rings: [...p.rings] }));
-        
-        // Check for 3 same-color rings on same peg (check all pegs, not just placed one)
-        for (let idx = 0; idx < 9; idx++) {
-            const rings = delPegs[idx].rings;
-            if (rings[0] >= 0 && rings[0] === rings[1] && rings[1] === rings[2]) {
-                totalScore += 3;
-                totalMatches++;
-                delPegs[idx].rings = [...emptySet];
-                scored = true;
-                
-                // Disturb ambient particles strongly
-                disturbParticles(pegs[idx].x, pegs[idx].y, 2, 250);
-                
-                // Add particles
-                const ringColor = ringColors[rings[0]];
-                addParticles(pegs[idx].x, pegs[idx].y, 70, ringColor);
-                addParticles(pegs[idx].x, pegs[idx].y, 30, {
-                    r: Math.min(255, ringColor.r + 30),
-                    g: Math.min(255, ringColor.g + 30),
-                    b: Math.min(255, ringColor.b + 30)
-                });
-                
-                // Add animation
-                animations.push({
-                    type: 'peg',
-                    peg: idx,
-                    color: ringColor,
-                    startTime: Date.now(),
-                    duration: 500
-                });
-            }
-        }
+    // Create backup copies for deletion marking
+    let delPegs = pegs.slice(0, 9).map(p => ({ 
+        rings: [...p.rings],
+        x: p.x,
+        y: p.y
+    }));
     
-    // Check lines (horizontal, vertical, diagonal)
-    const lineConfigs = [
-        // Horizontal
-        { lines: [[0, 1, 2], [3, 4, 5], [6, 7, 8]], type: 'horizontal' },
-        // Vertical
-        { lines: [[0, 3, 6], [1, 4, 7], [2, 5, 8]], type: 'vertical' },
-        // Diagonal
-        { lines: [[0, 4, 8]], type: 'diagonal1' },
-        { lines: [[2, 4, 6]], type: 'diagonal2' }
-    ];
-    
-    lineConfigs.forEach(config => {
-        config.lines.forEach(line => {
-            // Get all colors present in each peg of the line
-            const peg0Colors = delPegs[line[0]].rings.filter(c => c >= 0);
-            const peg1Colors = delPegs[line[1]].rings.filter(c => c >= 0);
-            const peg2Colors = delPegs[line[2]].rings.filter(c => c >= 0);
+    // Check for 3 same-color rings on same peg
+    for (let i = 0; i < 9; i++) {
+        const rings = delPegs[i].rings;
+        if (rings[0] >= 0 && rings[0] === rings[1] && rings[1] === rings[2]) {
+            gameState.score += 3 * gameState.multiplier;
+            delPegs[i].rings = [...emptySet];
             
-            // Find colors that appear in all three pegs
-            const commonColors = peg0Colors.filter(color => 
-                peg1Colors.includes(color) && peg2Colors.includes(color)
-            );
+            // Disturb ambient particles strongly
+            disturbParticles(pegs[i].x, pegs[i].y, 2, 250);
             
-            // For each common color, mark all rings of that color for deletion
-            commonColors.forEach(matchColor => {
-                totalMatches++;
-                
-                // Disturb particles along the entire line strongly
-                line.forEach(pegIdx => {
-                    disturbParticles(pegs[pegIdx].x, pegs[pegIdx].y, 2.5, 300);
-                });
-                
-                // Mark all rings of this color in these pegs for deletion
-                line.forEach(pegIdx => {
-                    for (let s = 0; s < 3; s++) {
-                        if (delPegs[pegIdx].rings[s] === matchColor) {
-                            delPegs[pegIdx].rings[s] = -1;
-                            totalScore++;
-                            scored = true;
-                            
-                            // Add particles
-                            const lineColor = ringColors[matchColor];
-                            addParticles(pegs[pegIdx].x, pegs[pegIdx].y, 23, lineColor);
-                            addParticles(pegs[pegIdx].x, pegs[pegIdx].y, 10, {
-                                r: Math.min(255, lineColor.r + 30),
-                                g: Math.min(255, lineColor.g + 30),
-                                b: Math.min(255, lineColor.b + 30)
-                            });
-                        }
-                    }
-                });
-                
-                // Add line animation
-                animations.push({
-                    type: config.type,
-                    line: line,
-                    color: ringColors[matchColor],
-                    startTime: Date.now(),
-                    duration: 500
-                });
+            // Add particles
+            const ringColor = ringColors[rings[0]];
+            addParticles(pegs[i].x, pegs[i].y, 70, ringColor);
+            addParticles(pegs[i].x, pegs[i].y, 30, {
+                r: Math.min(255, ringColor.r + 30),
+                g: Math.min(255, ringColor.g + 30),
+                b: Math.min(255, ringColor.b + 30)
             });
-        });
-    });
-    
-    // Apply deletions to actual pegs
-    if (scored) {
-        for (let i = 0; i < 9; i++) {
-            pegs[i].rings = [...delPegs[i].rings];
+            
+            totalMatches++;
         }
-        anyScored = true;
     }
     
-    // Continue checking if matches were found (for cascading combos)
-    keepChecking = scored;
+    // Look for line matches (across, down, diagonal \, diagonal /)
+    // Following the exact QB64 logic structure
+    const lineTypes = [
+        { // m=1: across
+            checks: 3,
+            startPegs: [0, 3, 6], // r(1)=1, r(2)=4, r(3)=7 (0-indexed: 0,3,6)
+            nextPeg: [1, 2],
+            type: 'horizontal',
+            animIndex: 1
+        },
+        { // m=2: down
+            checks: 3,
+            startPegs: [0, 1, 2], // r(1)=1, r(2)=2, r(3)=3 (0-indexed: 0,1,2)
+            nextPeg: [3, 6],
+            type: 'vertical',
+            animIndex: 2
+        },
+        { // m=3: diagonal \
+            checks: 1,
+            startPegs: [0], // r(1)=1 (0-indexed: 0)
+            nextPeg: [4, 8],
+            type: 'diagonal1',
+            animIndex: 3
+        },
+        { // m=4: diagonal /
+            checks: 1,
+            startPegs: [2], // r(1)=3 (0-indexed: 2)
+            nextPeg: [2, 4], // nextPeg(1)=2, nextPeg(2)=4, mas aplicado como -2 e +2 do startPeg
+            type: 'diagonal2',
+            animIndex: 4
+        }
+    ];
+    
+    lineTypes.forEach(lineType => {
+        for (let i = 0; i < lineType.checks; i++) {
+            const startPeg = lineType.startPegs[i];
+            
+            // Look at each ring on the first peg of each line
+            for (let j = 0; j < 3; j++) {
+                const ringColor = delPegs[startPeg].rings[j];
+                if (ringColor < 0) continue;
+                
+                // Check if this color exists in the next two pegs
+                let peg1, peg2;
+                if (lineType.type === 'diagonal2') {
+                    peg1 = startPeg - 2; // Special case for diagonal /
+                    peg2 = startPeg + 2;
+                } else {
+                    peg1 = startPeg + lineType.nextPeg[0];
+                    peg2 = startPeg + lineType.nextPeg[1];
+                }
+                
+                const found1 = delPegs[peg1].rings.includes(ringColor);
+                const found2 = delPegs[peg2].rings.includes(ringColor);
+                
+                if (found1 && found2) {
+                    // Match! Clear all rings of the same color in this group of pegs
+                    const linePegs = lineType.type === 'diagonal2' ? 
+                        [startPeg - 2, startPeg, startPeg + 2] :
+                        [startPeg, startPeg + lineType.nextPeg[0], startPeg + lineType.nextPeg[1]];
+                    
+                    linePegs.forEach(pegIdx => {
+                        // Disturb particles
+                        disturbParticles(pegs[pegIdx].x, pegs[pegIdx].y, 2.5, 300);
+                        
+                        // Remove all rings of this color from this peg
+                        for (let s = 0; s < 3; s++) {
+                            if (delPegs[pegIdx].rings[s] === ringColor) {
+                                delPegs[pegIdx].rings[s] = -1;
+                                gameState.score += gameState.multiplier;
+                                
+                                // Add particles
+                                const lineColor = ringColors[ringColor];
+                                addParticles(pegs[pegIdx].x, pegs[pegIdx].y, 23, lineColor);
+                                addParticles(pegs[pegIdx].x, pegs[pegIdx].y, 10, {
+                                    r: Math.min(255, lineColor.r + 30),
+                                    g: Math.min(255, lineColor.g + 30),
+                                    b: Math.min(255, lineColor.b + 30)
+                                });
+                            }
+                        }
+                    });
+                    
+                    scored = true;
+                    totalMatches++;
+                    
+                    // Add line animation
+                    animations.push({
+                        type: lineType.type,
+                        line: linePegs,
+                        color: ringColors[ringColor],
+                        startTime: Date.now(),
+                        duration: 500
+                    });
+                }
+            }
+        }
+    });
+    
+    // Perform deletion
+    for (let j = 0; j < 9; j++) {
+        pegs[j].rings = [...delPegs[j].rings];
     }
     
     // Process scoring and effects if any matches were found
-    if (anyScored) {
-        // Update score with animation trigger
-        const scoreIncrease = totalScore * gameState.multiplier;
-        gameState.score += scoreIncrease;
-        gameState.multiplier++;
-        
+    if (gameState.score > previousScore) {
         // Trigger screen shake and effects for big scores
+        const scoreIncrease = gameState.score - previousScore;
         if (scoreIncrease > 5) {
             scoreShake = Math.min(2, scoreIncrease / 10);
             
@@ -1574,6 +1588,8 @@ function checkMatches(pegIndex) {
         
         // Play sounds
         if (sounds.woosh) playSound(sounds.woosh);
+        
+        gameState.multiplier++;
         
         const comboIndex = Math.min(gameState.multiplier - 2, sounds.combo.length - 1);
         if (comboIndex >= 0 && sounds.combo[comboIndex]) {
@@ -1613,11 +1629,13 @@ function checkMatches(pegIndex) {
             gameState.highscore = gameState.score;
             saveHighScore();
         }
+        
+        scored = true;
     } else {
         gameState.multiplier = 1;
     }
     
-    return anyScored;
+    return scored;
 }
 
 // Check available moves
