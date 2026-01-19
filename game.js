@@ -4,6 +4,12 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
+// Responsive layout variables
+let isPortrait = false;
+let canvasScale = 1;
+let boardOffsetY = 0;
+let spawnOffsetY = 0;
+
 // Game constants
 const MODE_NORMAL = 0;
 const MODE_EASIER = 1;
@@ -285,31 +291,75 @@ let ringImages = {};
 // Initialize pegs
 function initPegs() {
     pegs = [];
-    const spacing = 6; // Reduced for larger gameboard
-    const offsetX = 20; // Deslocamento para centralizar melhor
-    let l = -(canvas.height / spacing);
-    let j = 0;
+    const spacing = isPortrait ? 7 : 6; // Mais espaçamento em portrait
+    const offsetX = 20;
     
-    // 12 pegs total (9 game board + 3 spawn area)
-    for (let i = 0; i < 12; i++) {
-        j++;
-        if (j > 3) {
-            j = 1;
-            l += canvas.height / spacing;
+    // Calculate positions based on orientation
+    if (isPortrait) {
+        // Portrait: board on top, spawn area on bottom
+        boardOffsetY = -canvas.height * 0.15;
+        spawnOffsetY = canvas.height * 0.25;
+        
+        let l = boardOffsetY - (canvas.height / spacing);
+        let j = 0;
+        
+        // 9 board pegs
+        for (let i = 0; i < 9; i++) {
+            j++;
+            if (j > 3) {
+                j = 1;
+                l += canvas.height / spacing;
+            }
+            
+            let k;
+            switch (j) {
+                case 1: k = -canvas.width / spacing; break;
+                case 2: k = 0; break;
+                case 3: k = canvas.width / spacing; break;
+            }
+            
+            pegs.push({
+                x: canvas.width / 2 + k + offsetX,
+                y: canvas.height / 2 + l,
+                rings: [...emptySet]
+            });
         }
         
-        let k;
-        switch (j) {
-            case 1: k = -canvas.width / spacing; break;
-            case 2: k = 0; break;
-            case 3: k = canvas.width / spacing; break;
+        // 3 spawn pegs (horizontal line at bottom)
+        const spawnY = canvas.height / 2 + spawnOffsetY;
+        const spawnSpacing = canvas.width / 5;
+        for (let i = 0; i < 3; i++) {
+            pegs.push({
+                x: canvas.width / 2 + (i - 1) * spawnSpacing,
+                y: spawnY,
+                rings: [...emptySet]
+            });
         }
+    } else {
+        // Landscape: original layout
+        let l = -(canvas.height / spacing);
+        let j = 0;
         
-        pegs.push({
-            x: canvas.width / 2 + k + offsetX,
-            y: canvas.height / 2 + l,
-            rings: [...emptySet]
-        });
+        for (let i = 0; i < 12; i++) {
+            j++;
+            if (j > 3) {
+                j = 1;
+                l += canvas.height / spacing;
+            }
+            
+            let k;
+            switch (j) {
+                case 1: k = -canvas.width / spacing; break;
+                case 2: k = 0; break;
+                case 3: k = canvas.width / spacing; break;
+            }
+            
+            pegs.push({
+                x: canvas.width / 2 + k + offsetX,
+                y: canvas.height / 2 + l,
+                rings: [...emptySet]
+            });
+        }
     }
 }
 
@@ -317,6 +367,47 @@ function initPegs() {
 function dist(x1, y1, x2, y2) {
     return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
 }
+
+// Resize canvas to fit screen
+function resizeCanvas() {
+    const dpr = window.devicePixelRatio || 1;
+    const aspectRatio = 900 / 700;
+    
+    let width = window.innerWidth;
+    let height = window.innerHeight;
+    
+    // Determine if portrait or landscape
+    isPortrait = height > width;
+    
+    if (isPortrait) {
+        // Portrait mode - make canvas taller
+        canvas.width = Math.min(900, width);
+        canvas.height = Math.min(1000, height);
+    } else {
+        // Landscape mode - use original aspect ratio
+        if (width / height > aspectRatio) {
+            canvas.height = height;
+            canvas.width = height * aspectRatio;
+        } else {
+            canvas.width = width;
+            canvas.height = width / aspectRatio;
+        }
+    }
+    
+    // Adjust CSS size for display
+    canvas.style.width = canvas.width + 'px';
+    canvas.style.height = canvas.height + 'px';
+    
+    // Reinitialize game elements
+    if (pegs && pegs.length > 0) {
+        initPegs();
+        createMainButtons();
+        initBackgroundStars();
+        initAmbientParticles();
+    }
+}
+
+// Distance helper
 
 // Map helper
 function map(value, minRange, maxRange, newMinRange, newMaxRange) {
@@ -1683,10 +1774,15 @@ function drawHUD() {
 
 // Create main screen buttons
 function createMainButtons() {
+    // Position buttons based on orientation
+    const rightEdge = canvas.width - 100;
+    const topStart = isPortrait ? 10 : 20;
+    const buttonSpacing = isPortrait ? 40 : 45;
+    
     buttons = [
-        { x: canvas.width - 100, y: 20, w: 80, h: 35, text: 'Settings' },
-        { x: canvas.width - 100, y: 65, w: 80, h: 35, text: 'Pause' },
-        { x: canvas.width - 100, y: 110, w: 80, h: 35, text: 'Quit' }
+        { x: rightEdge, y: topStart, w: 80, h: 35, text: 'Settings' },
+        { x: rightEdge, y: topStart + buttonSpacing, w: 80, h: 35, text: 'Pause' },
+        { x: rightEdge, y: topStart + buttonSpacing * 2, w: 80, h: 35, text: 'Quit' }
     ];
 }
 
@@ -2442,8 +2538,10 @@ function playSound(sound) {
 // Mouse handlers
 canvas.addEventListener('mousemove', (e) => {
     const rect = canvas.getBoundingClientRect();
-    mouse.x = e.clientX - rect.left;
-    mouse.y = e.clientY - rect.top;
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    mouse.x = (e.clientX - rect.left) * scaleX;
+    mouse.y = (e.clientY - rect.top) * scaleY;
     mouseX = mouse.x;
     mouseY = mouse.y;
     
@@ -2603,8 +2701,10 @@ canvas.addEventListener('touchstart', (e) => {
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
     const touch = e.touches[0];
-    mouse.x = touch.clientX - rect.left;
-    mouse.y = touch.clientY - rect.top;
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    mouse.x = (touch.clientX - rect.left) * scaleX;
+    mouse.y = (touch.clientY - rect.top) * scaleY;
     mouseX = mouse.x;
     mouseY = mouse.y;
     
@@ -2638,8 +2738,10 @@ canvas.addEventListener('touchmove', (e) => {
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
     const touch = e.touches[0];
-    mouse.x = touch.clientX - rect.left;
-    mouse.y = touch.clientY - rect.top;
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    mouse.x = (touch.clientX - rect.left) * scaleX;
+    mouse.y = (touch.clientY - rect.top) * scaleY;
     mouseX = mouse.x;
     mouseY = mouse.y;
     
@@ -3851,6 +3953,14 @@ function initGame(userInteracted = true) {
 
 // Main game loop
 let lastTime = Date.now();
+
+// Handle window resize
+window.addEventListener('resize', () => {
+    resizeCanvas();
+});
+
+// Initialize canvas size
+resizeCanvas();
 
 function gameLoop() {
     const now = Date.now();
