@@ -791,7 +791,7 @@ function checkMatches(pegIndex) {
                 type: 'combo',
                 message: `${msg}\n${gameState.multiplier}x combo!`,
                 startTime: Date.now(),
-                duration: 3000
+                duration: 1500
             });
             
             // Create explosion particles
