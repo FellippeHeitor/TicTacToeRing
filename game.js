@@ -2770,6 +2770,7 @@ function handleGameOverClick(x, y) {
         // Reset to intro
         showIntro = true;
         introTime = 0;
+        mouse.clicked = false; // Reset to prevent skipping intro
         initIntro();
         return true;
     }
@@ -2969,12 +2970,27 @@ let showIntro = true;
 let introRings = [];
 
 function initIntro() {
+    // Add particle burst at center
+    for (let i = 0; i < 200; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 3 + 1;
+        const color = ringColors[Math.floor(Math.random() * ringColors.length)];
+        particles.push(new Particle(
+            canvas.width / 2,
+            canvas.height / 2,
+            Math.cos(angle) * speed,
+            Math.sin(angle) * speed,
+            color
+        ));
+    }
+    
     for (let i = 0; i < 30; i++) {
         introRings.push({
             angle: Math.random() * Math.PI * 2,
             speed: Math.random() * 5,
             radius: Math.random() * 30 + 50,
-            color: Math.floor(Math.random() * ringColors.length)
+            color: Math.floor(Math.random() * ringColors.length),
+            size: Math.floor(Math.random() * 3) // 0, 1, or 2
         });
     }
 }
@@ -2984,14 +3000,77 @@ function updateIntro(dt) {
     
     drawBackground();
     
+    // Draw electric bolts between same-colored intro rings that are close
+    if (introTime > 1 && introTime < 5) {
+        ctx.save();
+        
+        // Check all pairs of rings
+        for (let i = 0; i < introRings.length; i++) {
+            for (let j = i + 1; j < introRings.length; j++) {
+                const ring1 = introRings[i];
+                const ring2 = introRings[j];
+                
+                // Only connect rings of the same color
+                if (ring1.color !== ring2.color) continue;
+                
+                const x1 = canvas.width / 2 + Math.cos(ring1.angle) * ring1.radius;
+                const y1 = canvas.height / 2 + Math.sin(ring1.angle) * ring1.radius;
+                const x2 = canvas.width / 2 + Math.cos(ring2.angle) * ring2.radius;
+                const y2 = canvas.height / 2 + Math.sin(ring2.angle) * ring2.radius;
+                
+                // Calculate distance between rings
+                const distance = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+                const maxDistance = 250;
+                
+                // Only draw bolt if rings are close enough
+                if (distance > maxDistance) continue;
+                
+                // Calculate intensity based on distance
+                const intensity = 1 - (distance / maxDistance);
+                const boltAlpha = (0.3 + intensity * 0.6) * (0.7 + Math.random() * 0.3);
+                
+                // Draw lightning bolt
+                ctx.strokeStyle = `rgba(150, 220, 255, ${boltAlpha})`;
+                ctx.lineWidth = 1 + intensity * 2;
+                ctx.shadowBlur = 15 + intensity * 20;
+                ctx.shadowColor = `rgba(150, 220, 255, ${0.6 + intensity * 0.4})`;
+                ctx.lineCap = 'round';
+                
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                
+                const segments = 4 + Math.floor(intensity * 3);
+                for (let s = 1; s <= segments; s++) {
+                    const t = s / segments;
+                    const px = x1 + (x2 - x1) * t;
+                    const py = y1 + (y2 - y1) * t;
+                    const jitter = (Math.random() - 0.5) * (10 + intensity * 15) * Math.sin(t * Math.PI);
+                    const angle = Math.atan2(y2 - y1, x2 - x1);
+                    
+                    ctx.lineTo(
+                        px + Math.cos(angle + Math.PI / 2) * jitter,
+                        py + Math.sin(angle + Math.PI / 2) * jitter
+                    );
+                }
+                
+                ctx.stroke();
+            }
+        }
+        ctx.shadowBlur = 0;
+        ctx.restore();
+    }
+    
     // Animate rings
     introRings.forEach(ring => {
         ring.angle += 0.01;
         ring.radius += ring.speed * dt * 60;
         const x = canvas.width / 2 + Math.cos(ring.angle) * ring.radius;
         const y = canvas.height / 2 + Math.sin(ring.angle) * ring.radius;
-        drawRing(x, y, 2, ring.color);
+        drawRing(x, y, ring.size, ring.color);
     });
+    
+    // Update and draw particles
+    updateAnimations();
     
     // Fade in/out text
     let alpha = 1;
