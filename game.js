@@ -60,6 +60,39 @@ const ringColors = [
 // Combo messages
 const megaComboMsg = ['Fantastic', 'Outstanding', 'Amazing', 'Awesome', 'MEGA', 'SUPER'];
 
+// Particle class for combo explosions
+class Particle {
+    constructor(x, y, color) {
+        this.x = x;
+        this.y = y;
+        this.vx = (Math.random() - 0.5) * 8;
+        this.vy = (Math.random() - 0.5) * 8 - 2;
+        this.life = 1;
+        this.decay = 0.015 + Math.random() * 0.015;
+        this.size = 3 + Math.random() * 4;
+        this.color = color;
+        this.gravity = 0.15;
+    }
+    
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.vy += this.gravity;
+        this.life -= this.decay;
+        return this.life > 0;
+    }
+    
+    draw(ctx) {
+        ctx.save();
+        ctx.globalAlpha = this.life;
+        ctx.fillStyle = this.color;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+}
+
 // Pegs (9 game board + 3 spawn area)
 let pegs = [];
 const emptySet = [-1, -1, -1];
@@ -159,7 +192,29 @@ function addParticles(x, y, count, color) {
             size: Math.ceil(Math.random() * 3),
             life: Math.random(),
             maxLife: Math.random(),
-            active: true
+            active: true,
+            // Add methods for compatibility with Particle class
+            update: function() {
+                if (!this.active) return false;
+                this.vy += 0.1; // gravity
+                this.x += this.vx;
+                this.y += this.vy;
+                this.life -= 0.016 * 2; // dt
+                
+                if (this.x < 0 || this.x > canvas.width || this.y < 0 || this.y > canvas.height || this.life <= 0) {
+                    return false;
+                }
+                return true;
+            },
+            draw: function(ctx) {
+                if (this.active && this.life > 0) {
+                    ctx.save();
+                    ctx.globalAlpha = Math.min(this.life, 1);
+                    ctx.fillStyle = this.color;
+                    ctx.fillRect(this.x, this.y, this.size, this.size);
+                    ctx.restore();
+                }
+            }
         });
     }
 }
@@ -188,33 +243,6 @@ function drawRing(x, y, size, colorIndex) {
     ctx.beginPath();
     ctx.arc(x, y, ringRadius, 0, Math.PI * 2);
     ctx.stroke();
-}
-
-// Update particles
-function updateParticles(dt) {
-    particles = particles.filter(p => {
-        if (!p.active) return false;
-        
-        p.vy += 0.1; // gravity
-        p.x += p.vx;
-        p.y += p.vy;
-        p.life -= dt * 2;
-        
-        if (p.x < 0 || p.x > canvas.width || p.y < 0 || p.y > canvas.height || p.life <= 0) {
-            return false;
-        }
-        
-        return true;
-    });
-}
-
-// Draw particles
-function drawParticles() {
-    particles.forEach(p => {
-        const alpha = Math.max(0, p.life / p.maxLife);
-        const particleColor = `rgba(${p.color.r}, ${p.color.g}, ${p.color.b}, ${alpha})`;
-        drawCircle(p.x, p.y, p.size, particleColor);
-    });
 }
 
 // Draw background
@@ -762,6 +790,17 @@ function checkMatches(pegIndex) {
                 startTime: Date.now(),
                 duration: 3000
             });
+            
+            // Create explosion particles
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const particleCount = 30 + gameState.multiplier * 10;
+            const colors = ['#ff5500', '#ff8800', '#ffaa00', '#ffff00', '#ff0000', '#ff3333'];
+            
+            for (let i = 0; i < particleCount; i++) {
+                const color = colors[Math.floor(Math.random() * colors.length)];
+                particles.push(new Particle(centerX, centerY, color));
+            }
         }
         
         if (gameState.score > gameState.highscore) {
@@ -955,41 +994,16 @@ function updateAnimations() {
             
             ctx.save();
             const centerY = canvas.height / 2 + yOffset;
-            
-            // Draw combo background
             const lines = anim.message.split('\n');
-            const bgWidth = 400 * scale;
-            const bgHeight = 120 * scale;
-            const bgX = canvas.width / 2 - bgWidth / 2;
-            const bgY = centerY - bgHeight / 2;
             
-            ctx.globalAlpha = alpha * 0.9;
-            ctx.shadowBlur = 30;
-            ctx.shadowColor = 'rgba(255, 100, 100, 0.8)';
-            
-            const gradient = ctx.createLinearGradient(bgX, bgY, bgX, bgY + bgHeight);
-            gradient.addColorStop(0, 'rgba(255, 50, 50, 0.8)');
-            gradient.addColorStop(0.5, 'rgba(255, 100, 50, 0.6)');
-            gradient.addColorStop(1, 'rgba(255, 150, 50, 0.8)');
-            
-            roundRect(ctx, bgX, bgY, bgWidth, bgHeight, 20);
-            ctx.fillStyle = gradient;
-            ctx.fill();
-            
-            ctx.strokeStyle = 'rgba(255, 200, 100, 0.9)';
-            ctx.lineWidth = 3;
-            ctx.stroke();
-            
-            ctx.shadowBlur = 0;
-            
-            // Draw text with scale
+            // Draw text with scale (no background)
             ctx.globalAlpha = alpha;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             
             // Calculate centered Y position for both lines
-            const line1Y = bgY + bgHeight / 2 - 20;
-            const line2Y = bgY + bgHeight / 2 + 20;
+            const line1Y = centerY - 20;
+            const line2Y = centerY + 20;
             
             // First line (message)
             ctx.font = `bold ${Math.floor(36 * scale)}px Arial`;
@@ -1013,6 +1027,13 @@ function updateAnimations() {
     });
     
     animations = animations.filter(a => (now - a.startTime) < a.duration);
+    
+    // Update and draw particles
+    particles = particles.filter(p => {
+        const alive = p.update();
+        if (alive) p.draw(ctx);
+        return alive;
+    });
 }
 
 // Play sound
@@ -1545,9 +1566,6 @@ function updateIntro(dt) {
         drawRing(x, y, 2, ring.color);
     });
     
-    updateParticles(dt);
-    drawParticles();
-    
     // Fade in/out text
     let alpha = 1;
     if (introTime < 1.5) {
@@ -1617,7 +1635,6 @@ function gameLoop() {
     } else {
         // Update
         if (!gameState.pauseGame && !showSettingsModal) {
-            updateParticles(dt);
             updateScore(dt);
             generateNewSets();
             
@@ -1633,7 +1650,6 @@ function gameLoop() {
         drawHoverHighlight();
         drawRings();
         updateAnimations();
-        drawParticles();
         drawHUD();
         
         // Check hover
