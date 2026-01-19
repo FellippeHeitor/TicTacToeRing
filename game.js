@@ -398,9 +398,19 @@ function resizeCanvas() {
     canvas.style.width = canvas.width + 'px';
     canvas.style.height = canvas.height + 'px';
     
-    // Reinitialize game elements
+    // Reinitialize game elements - preserve ring data
     if (pegs && pegs.length > 0) {
+        // Save current ring data
+        const savedRings = pegs.map(peg => [...peg.rings]);
+        
+        // Update positions
         initPegs();
+        
+        // Restore ring data
+        for (let i = 0; i < Math.min(savedRings.length, pegs.length); i++) {
+            pegs[i].rings = savedRings[i];
+        }
+        
         createMainButtons();
         initBackgroundStars();
         initAmbientParticles();
@@ -1645,9 +1655,9 @@ function drawHUD() {
     // High score panel with glow effect
     const hsPanel = {
         x: 15,
-        y: 15,
-        width: 200,
-        height: 50
+        y: isPortrait ? 5 : 15,
+        width: isPortrait ? 200 : 200,
+        height: isPortrait ? 40 : 50
     };
     
     // Glow effect for high score
@@ -1668,37 +1678,37 @@ function drawHUD() {
     ctx.shadowBlur = 0;
     
     // Crown emoji
-    ctx.font = '24px Arial';
+    ctx.font = isPortrait ? '16px Arial' : '24px Arial';
     ctx.fillStyle = '#ffd700';
     ctx.shadowColor = '#ffa500';
     ctx.shadowBlur = 10 * highscoreGlow;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText('👑', 20, hsPanel.y + hsPanel.height / 2);
+    ctx.fillText('👑', isPortrait ? 12 : 20, hsPanel.y + hsPanel.height / 2);
     
     // High score label
     ctx.shadowBlur = 0;
-    ctx.font = 'bold 10px Arial';
+    ctx.font = isPortrait ? 'bold 8px Arial' : 'bold 10px Arial';
     ctx.fillStyle = 'rgba(255, 215, 0, 0.7)';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.fillText('HIGH SCORE', 52, hsPanel.y + 10);
+    ctx.fillText('HIGH SCORE', isPortrait ? 34 : 52, hsPanel.y + (isPortrait ? 5 : 10));
     
     // High score value
-    ctx.font = 'bold 22px Arial';
+    ctx.font = isPortrait ? 'bold 14px Arial' : 'bold 22px Arial';
     ctx.fillStyle = '#ffd700';
     ctx.shadowColor = '#ffa500';
     ctx.shadowBlur = 5;
     ctx.textBaseline = 'bottom';
-    ctx.fillText(Math.floor(gameState.visibleHighScore).toString(), 52, hsPanel.y + hsPanel.height - 8);
+    ctx.fillText(Math.floor(gameState.visibleHighScore).toString(), isPortrait ? 34 : 52, hsPanel.y + hsPanel.height - (isPortrait ? 5 : 8));
     ctx.shadowBlur = 0;
     
     // Main score panel with dynamic effects
     const scorePanel = {
         x: 10,
-        y: 80,
-        width: 280,
-        height: 120
+        y: isPortrait ? 50 : 80,
+        width: isPortrait ? 200 : 280,
+        height: isPortrait ? 80 : 120
     };
     
     // Score panel background
@@ -1717,23 +1727,23 @@ function drawHUD() {
     ctx.shadowBlur = 0;
     
     // Score label
-    ctx.font = 'bold 12px Arial';
+    ctx.font = isPortrait ? 'bold 10px Arial' : 'bold 12px Arial';
     ctx.fillStyle = 'rgba(150, 200, 255, 0.9)';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.fillText('SCORE', scorePanel.x + 10, scorePanel.y + 10);
+    ctx.fillText('SCORE', scorePanel.x + 10, scorePanel.y + (isPortrait ? 5 : 10));
     
     // Animated score with shake effect when increasing
     ctx.save();
     const scoreX = scorePanel.x + 10 + (Math.random() * scoreShake * 4 - scoreShake * 2);
-    const scoreY = scorePanel.y + 55 + (Math.random() * scoreShake * 4 - scoreShake * 2);
+    const scoreY = scorePanel.y + (isPortrait ? 35 : 55) + (Math.random() * scoreShake * 4 - scoreShake * 2);
     
     // Score glow
     ctx.shadowColor = '#00ffff';
     ctx.shadowBlur = 15 + scoreShake * 10;
     
     // Main score
-    ctx.font = 'bold 52px Arial';
+    ctx.font = isPortrait ? 'bold 32px Arial' : 'bold 52px Arial';
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
@@ -1745,7 +1755,7 @@ function drawHUD() {
     // Multiplier with pulse animation
     if (gameState.multiplier > 1) {
         const multX = scorePanel.x + 10;
-        const multY = scorePanel.y + 95;
+        const multY = scorePanel.y + (isPortrait ? 62 : 95);
         
         multiplierPulse = Math.sin(Date.now() / 200) * 0.15 + 1;
         
@@ -1754,7 +1764,7 @@ function drawHUD() {
         ctx.scale(multiplierPulse, multiplierPulse);
         
         // Multiplier text with better alignment
-        ctx.font = 'bold 20px Arial';
+        ctx.font = isPortrait ? 'bold 12px Arial' : 'bold 20px Arial';
         ctx.fillStyle = '#ff5555';
         ctx.shadowColor = '#ff0000';
         ctx.shadowBlur = 10;
@@ -1775,14 +1785,16 @@ function drawHUD() {
 // Create main screen buttons
 function createMainButtons() {
     // Position buttons based on orientation
-    const rightEdge = canvas.width - 100;
-    const topStart = isPortrait ? 10 : 20;
-    const buttonSpacing = isPortrait ? 40 : 45;
+    const buttonWidth = isPortrait ? 70 : 80;
+    const buttonHeight = isPortrait ? 30 : 35;
+    const rightEdge = canvas.width - buttonWidth - 10;
+    const topStart = isPortrait ? 5 : 20;
+    const buttonSpacing = isPortrait ? 35 : 45;
     
     buttons = [
-        { x: rightEdge, y: topStart, w: 80, h: 35, text: 'Settings' },
-        { x: rightEdge, y: topStart + buttonSpacing, w: 80, h: 35, text: 'Pause' },
-        { x: rightEdge, y: topStart + buttonSpacing * 2, w: 80, h: 35, text: 'Quit' }
+        { x: rightEdge, y: topStart, w: buttonWidth, h: buttonHeight, text: 'Settings' },
+        { x: rightEdge, y: topStart + buttonSpacing, w: buttonWidth, h: buttonHeight, text: 'Pause' },
+        { x: rightEdge, y: topStart + buttonSpacing * 2, w: buttonWidth, h: buttonHeight, text: 'Quit' }
     ];
 }
 
@@ -1798,11 +1810,11 @@ function drawButtons() {
         ctx.strokeRect(btn.x, btn.y, btn.w, btn.h);
         
         ctx.fillStyle = '#fff';
-        ctx.font = '12px monospace';
+        ctx.font = isPortrait ? '11px monospace' : '12px monospace';
         ctx.textAlign = 'left';
         ctx.textBaseline = 'alphabetic';
         const textWidth = ctx.measureText(btn.text).width;
-        ctx.fillText(btn.text, btn.x + (btn.w - textWidth) / 2, btn.y + 20);
+        ctx.fillText(btn.text, btn.x + (btn.w - textWidth) / 2, btn.y + (isPortrait ? 18 : 20));
     });
     ctx.restore();
 }
@@ -2907,18 +2919,18 @@ function toggleSettings() {
 
 // Create settings buttons
 function createSettingsButtons() {
-    const modalWidth = 500;
-    const modalHeight = 480;
+    const modalWidth = isPortrait ? Math.min(380, canvas.width - 40) : 500;
+    const modalHeight = isPortrait ? Math.min(450, canvas.height - 100) : 480;
     const modalX = (canvas.width - modalWidth) / 2;
     const modalY = (canvas.height - modalHeight) / 2;
     
-    const sliderWidth = 250;
-    const toggleWidth = 50;
-    const buttonHeight = 50;
+    const sliderWidth = isPortrait ? modalWidth - 120 : 250;
+    const toggleWidth = isPortrait ? 45 : 50;
+    const buttonHeight = isPortrait ? 45 : 50;
     const buttonWidth = sliderWidth + toggleWidth + 10;
     const startX = modalX + (modalWidth - buttonWidth) / 2;
-    let y = modalY + 100;
-    const spacing = 80;
+    let y = modalY + (isPortrait ? 80 : 100);
+    const spacing = isPortrait ? 70 : 80;
     
     settingsButtons = [
         {
@@ -3002,8 +3014,8 @@ function drawSettingsModal() {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
     // Modal dimensions
-    const modalWidth = 500;
-    const modalHeight = 480;
+    const modalWidth = isPortrait ? Math.min(380, canvas.width - 40) : 500;
+    const modalHeight = isPortrait ? Math.min(450, canvas.height - 100) : 480;
     const modalX = (canvas.width - modalWidth) / 2;
     const modalY = (canvas.height - modalHeight) / 2;
     
@@ -3044,24 +3056,24 @@ function drawSettingsModal() {
     ctx.restore();
     
     // Title
-    ctx.font = 'bold 36px Arial';
+    ctx.font = isPortrait ? 'bold 24px Arial' : 'bold 36px Arial';
     ctx.fillStyle = `rgba(255, 255, 255, ${settingsModalAlpha})`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     ctx.shadowBlur = 5 * settingsModalAlpha;
     ctx.shadowColor = 'rgba(100, 150, 255, 0.8)';
-    ctx.fillText('⚙ Settings', canvas.width / 2, modalY + 30);
+    ctx.fillText('⚙ Settings', canvas.width / 2, modalY + (isPortrait ? 20 : 30));
     ctx.shadowBlur = 0;
     
     // Draw buttons
     settingsButtons.forEach((btn, index) => {
         if (btn.type === 'slider') {
             // Draw slider label
-            ctx.font = 'bold 18px Arial';
+            ctx.font = isPortrait ? 'bold 14px Arial' : 'bold 18px Arial';
             ctx.fillStyle = `rgba(255, 255, 255, ${settingsModalAlpha})`;
             ctx.textAlign = 'left';
             ctx.textBaseline = 'top';
-            ctx.fillText(btn.label, btn.x, btn.y - 25);
+            ctx.fillText(btn.label, btn.x, btn.y - (isPortrait ? 20 : 25));
             
             // Slider track
             const trackHeight = 8;
@@ -3087,7 +3099,7 @@ function drawSettingsModal() {
             
             // Slider handle
             const handleX = btn.x + btn.width * btn.value;
-            const handleRadius = 12;
+            const handleRadius = isPortrait ? 10 : 12;
             const isHovered = mouseX >= handleX - handleRadius && mouseX <= handleX + handleRadius &&
                             mouseY >= btn.y && mouseY <= btn.y + btn.height;
             
@@ -3103,11 +3115,11 @@ function drawSettingsModal() {
             ctx.shadowBlur = 0;
             
             // Volume percentage
-            ctx.font = '14px Arial';
+            ctx.font = isPortrait ? '12px Arial' : '14px Arial';
             ctx.fillStyle = `rgba(200, 200, 220, ${settingsModalAlpha})`;
             ctx.textAlign = 'right';
             ctx.textBaseline = 'top';
-            ctx.fillText(`${Math.round(btn.value * 100)}%`, btn.x + btn.width, btn.y - 25);
+            ctx.fillText(`${Math.round(btn.value * 100)}%`, btn.x + btn.width, btn.y - (isPortrait ? 20 : 25));
         } else if (btn.type === 'toggle') {
             // Toggle button (ON/OFF)
             const isHovered = mouseX >= btn.x && mouseX <= btn.x + btn.width &&
@@ -3144,7 +3156,7 @@ function drawSettingsModal() {
             ctx.shadowBlur = 0;
             
             // Button text
-            ctx.font = 'bold 14px Arial';
+            ctx.font = isPortrait ? 'bold 12px Arial' : 'bold 14px Arial';
             ctx.fillStyle = `rgba(255, 255, 255, ${settingsModalAlpha})`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
@@ -3187,7 +3199,7 @@ function drawSettingsModal() {
             ctx.shadowBlur = 0;
             
             // Button text
-            ctx.font = 'bold 20px Arial';
+            ctx.font = isPortrait ? 'bold 16px Arial' : 'bold 20px Arial';
             ctx.fillStyle = `rgba(255, 255, 255, ${settingsModalAlpha})`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
