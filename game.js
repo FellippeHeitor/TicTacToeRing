@@ -516,8 +516,8 @@ function explodeSpawnedRings() {
                 const colorIndex = pegs[i].rings[j];
                 if (colorIndex >= 0) {
                     const color = ringColors[colorIndex];
-                    addParticles(pegs[i].x, pegs[i].y, 50, color);
-                    addParticles(pegs[i].x, pegs[i].y, 20, {
+                    addParticles(pegs[i].x, pegs[i].y, 150, color);
+                    addParticles(pegs[i].x, pegs[i].y, 80, {
                         r: Math.min(255, color.r + 30),
                         g: Math.min(255, color.g + 30),
                         b: Math.min(255, color.b + 30)
@@ -525,11 +525,14 @@ function explodeSpawnedRings() {
                 }
             }
             
+            // Add extra burst particles
+            addParticles(pegs[i].x, pegs[i].y, 100, { r: 255, g: 255, b: 255 });
+            
             // Add ripple effect
             addRipple(pegs[i].x, pegs[i].y, pegs[i].rings[0] >= 0 ? pegs[i].rings[0] : 0);
             
             // Disturb particles
-            disturbParticles(pegs[i].x, pegs[i].y, 2, 200);
+            disturbParticles(pegs[i].x, pegs[i].y, 3, 250);
             
             // Clear the rings
             pegs[i].rings = [...emptySet];
@@ -749,6 +752,61 @@ function drawBackground() {
 }
 
 // Draw board divisions
+// Draw spawn area background
+function drawSpawnAreaBackground() {
+    if (pegs.length < 12) return;
+    
+    // Calculate spawn area bounds
+    const spawnPegs = [pegs[9], pegs[10], pegs[11]];
+    const minX = Math.min(...spawnPegs.map(p => p.x)) - 60;
+    const maxX = Math.max(...spawnPegs.map(p => p.x)) + 60;
+    const minY = Math.min(...spawnPegs.map(p => p.y)) - 60;
+    const maxY = Math.max(...spawnPegs.map(p => p.y)) + 60;
+    
+    const width = maxX - minX;
+    const height = maxY - minY;
+    const centerX = minX + width / 2;
+    const centerY = minY + height / 2;
+    const radius = 25;
+    
+    ctx.save();
+    
+    // Glassy background with gradient
+    const bgGradient = ctx.createRadialGradient(
+        centerX, centerY, 0,
+        centerX, centerY, Math.max(width, height) / 2
+    );
+    bgGradient.addColorStop(0, 'rgba(80, 120, 200, 0.15)');
+    bgGradient.addColorStop(0.5, 'rgba(60, 100, 180, 0.1)');
+    bgGradient.addColorStop(1, 'rgba(40, 80, 160, 0.05)');
+    
+    ctx.fillStyle = bgGradient;
+    ctx.beginPath();
+    ctx.roundRect(minX, minY, width, height, radius);
+    ctx.fill();
+    
+    // Glassy border with glow
+    const borderPulse = Math.sin(Date.now() / 1500) * 0.2 + 0.5;
+    ctx.strokeStyle = `rgba(100, 150, 255, ${borderPulse * 0.4})`;
+    ctx.lineWidth = 2;
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = `rgba(100, 150, 255, ${borderPulse * 0.6})`;
+    ctx.beginPath();
+    ctx.roundRect(minX, minY, width, height, radius);
+    ctx.stroke();
+    
+    // Inner glow
+    ctx.strokeStyle = `rgba(150, 200, 255, ${borderPulse * 0.3})`;
+    ctx.lineWidth = 1;
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = `rgba(150, 200, 255, ${borderPulse * 0.4})`;
+    ctx.beginPath();
+    ctx.roundRect(minX + 5, minY + 5, width - 10, height - 10, radius - 5);
+    ctx.stroke();
+    
+    ctx.restore();
+}
+
 function drawBoardDivisions() {
     const spacing = 6;
     const offsetX = 20;
@@ -3508,6 +3566,7 @@ function gameLoop() {
         
         // Draw
         drawBackground();
+        drawSpawnAreaBackground();
         drawBoardDivisions();
         drawPegs();
         drawDragTrails();
