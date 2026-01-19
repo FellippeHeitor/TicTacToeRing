@@ -93,6 +93,11 @@ let draggingSlider = null;
 // Confirmation modal state
 let showConfirmModal = false;
 let confirmModalAlpha = 0;
+
+// Game over explosion state
+let gameOverExplosionStarted = false;
+let gameOverExplosionTime = 0;
+const GAME_OVER_EXPLOSION_DELAY = 1.5; // Wait 1.5 seconds for explosion before showing modal
 let confirmMessage = '';
 let confirmCallback = null;
 
@@ -497,6 +502,42 @@ function addRipple(x, y, colorIndex) {
         color: `rgb(${color.r}, ${color.g}, ${color.b})`,
         life: 1
     });
+}
+
+// Explode spawned rings on game over
+function explodeSpawnedRings() {
+    if (pegs.length < 12) return;
+    
+    // Explode each spawn peg that has rings
+    for (let i = 9; i < 12; i++) {
+        if (!pegs[i].rings.every(r => r === -1)) {
+            // Add particles for each ring
+            for (let j = 0; j < 3; j++) {
+                const colorIndex = pegs[i].rings[j];
+                if (colorIndex >= 0) {
+                    const color = ringColors[colorIndex];
+                    addParticles(pegs[i].x, pegs[i].y, 50, color);
+                    addParticles(pegs[i].x, pegs[i].y, 20, {
+                        r: Math.min(255, color.r + 30),
+                        g: Math.min(255, color.g + 30),
+                        b: Math.min(255, color.b + 30)
+                    });
+                }
+            }
+            
+            // Add ripple effect
+            addRipple(pegs[i].x, pegs[i].y, pegs[i].rings[0] >= 0 ? pegs[i].rings[0] : 0);
+            
+            // Disturb particles
+            disturbParticles(pegs[i].x, pegs[i].y, 2, 200);
+            
+            // Clear the rings
+            pegs[i].rings = [...emptySet];
+        }
+    }
+    
+    // Play explosion sound
+    if (sounds.woosh) playSound(sounds.woosh);
 }
 
 // Draw trails
@@ -1293,6 +1334,9 @@ function checkButtonHover() {
 
 // Generate new sets in spawn area
 function generateNewSets() {
+    // Don't generate new sets if game is over
+    if (gameState.gameOver) return;
+    
     // Check if all 3 spawn pegs are empty
     let allEmpty = true;
     for (let i = 9; i < 12; i++) {
@@ -2918,7 +2962,8 @@ function drawGameOverModal() {
     // Score
     ctx.font = 'bold 24px Arial';
     ctx.fillStyle = `rgba(255, 255, 255, ${gameOverModalAlpha})`;
-    ctx.fillText(`Final Score: ${Math.floor(gameState.score)}`, canvas.width / 2, modalY + 120);
+    const finalScore = Math.floor(gameState.score);
+    ctx.fillText(`Final Score: ${finalScore}`, canvas.width / 2, modalY + 120);
     
     // High score message
     if (gameState.score >= gameState.highscore) {
@@ -3364,6 +3409,10 @@ function initGame(userInteracted = true) {
     showTutorial = false;
     tutorialTime = 0;
     
+    // Reset game over explosion state
+    gameOverExplosionStarted = false;
+    gameOverExplosionTime = 0;
+    
     // Load settings and high score on first init
     if (!pegs || pegs.length === 0) {
         loadSettings();
@@ -3431,7 +3480,16 @@ function gameLoop() {
                 // Wait for score animation to complete
                 if (Math.abs(gameState.visibleScore - gameState.score) < 1) {
                     gameState.gameOver = true;
+                    gameOverExplosionStarted = false;
+                    gameOverExplosionTime = 0;
                 }
+            }
+            
+            // Handle game over explosion sequence
+            if (gameState.gameOver && !gameOverExplosionStarted) {
+                explodeSpawnedRings();
+                gameOverExplosionStarted = true;
+                gameOverExplosionTime = 0;
             }
             
             // Update tutorial timer
@@ -3441,6 +3499,11 @@ function gameLoop() {
                     showTutorial = true;
                 }
             }
+        }
+        
+        // Update game over explosion timer
+        if (gameState.gameOver && gameOverExplosionStarted) {
+            gameOverExplosionTime += dt;
         }
         
         // Draw
@@ -3498,9 +3561,11 @@ function gameLoop() {
             drawConfirmModal();
         }
         
-        // Game over modal
+        // Game over modal - only show after explosion animation completes
         if (gameState.gameOver && !showGameOverModal) {
-            showGameOverModal = true;
+            if (gameOverExplosionTime >= GAME_OVER_EXPLOSION_DELAY) {
+                showGameOverModal = true;
+            }
         }
         
         if (showGameOverModal || gameOverModalAlpha > 0) {
