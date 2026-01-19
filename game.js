@@ -112,6 +112,10 @@ let multiplierPulse = 0;
 let backgroundStars = [];
 let screenFlash = 0;
 let screenZoom = 1;
+let lastElectricSoundTime = 0;
+let electricSoundActive = false;
+let electricSoundFading = false;
+let electricSoundInterval = null;
 let dragTrails = [];
 let rippleEffects = [];
 let ambientParticles = [];
@@ -248,7 +252,8 @@ let sounds = {
     woosh: null,
     woodblock: null,
     track1: null,
-    combo: []
+    combo: [],
+    electric: null
 };
 
 // Ring images cache
@@ -767,6 +772,33 @@ function drawElectricConnections(comboInfo, dragPegIndex, targetPegIndex) {
     const distanceFactor = Math.max(0, 1 - (distance / maxDistance));
     const intensity = distanceFactor * distanceFactor; // Squared for more dramatic falloff
     
+    // Start electric sound with fade in if not already playing
+    if (sounds.electric && !electricSoundActive && intensity > 0.3) {
+        electricSoundActive = true;
+        electricSoundFading = false;
+        sounds.electric.loop = true;
+        sounds.electric.volume = 0;
+        sounds.electric.currentTime = 0;
+        sounds.electric.play().catch(() => {});
+        
+        // Fade in over 200ms
+        const fadeInSteps = 20;
+        const fadeInInterval = 10;
+        const targetVolume = gameState.sfxVolume * 0.3;
+        let step = 0;
+        
+        if (electricSoundInterval) clearInterval(electricSoundInterval);
+        electricSoundInterval = setInterval(() => {
+            if (sounds.electric && step < fadeInSteps) {
+                step++;
+                sounds.electric.volume = (step / fadeInSteps) * targetVolume;
+            } else {
+                clearInterval(electricSoundInterval);
+                electricSoundInterval = null;
+            }
+        }, fadeInInterval);
+    }
+    
     ctx.save();
     
     // Group matching rings by color for proper connections
@@ -908,23 +940,60 @@ function drawElectricConnections(comboInfo, dragPegIndex, targetPegIndex) {
     ctx.restore();
 }
 
+function stopElectricSound() {
+    if (sounds.electric && electricSoundActive && !electricSoundFading) {
+        electricSoundFading = true;
+        
+        // Fade out over 150ms
+        const fadeOutSteps = 15;
+        const fadeOutInterval = 10;
+        const startVolume = sounds.electric.volume;
+        let step = 0;
+        
+        if (electricSoundInterval) clearInterval(electricSoundInterval);
+        electricSoundInterval = setInterval(() => {
+            if (sounds.electric && step < fadeOutSteps) {
+                step++;
+                sounds.electric.volume = startVolume * (1 - step / fadeOutSteps);
+            } else {
+                if (sounds.electric) {
+                    sounds.electric.pause();
+                    sounds.electric.currentTime = 0;
+                }
+                electricSoundActive = false;
+                electricSoundFading = false;
+                clearInterval(electricSoundInterval);
+                electricSoundInterval = null;
+            }
+        }, fadeOutInterval);
+    }
+}
+
 function drawHoverHighlight() {
     // Check for combo effect when dragging
     if (mouse.dragging >= 0 && gameState.electricConnections) {
+        let foundCombo = false;
         // Check each board peg for potential combo
         for (let i = 0; i < 9; i++) {
             if (dist(pegs[i].x, pegs[i].y, mouse.x, mouse.y) <= 40) {
                 const comboInfo = wouldCreateCombo(i, mouse.dragging);
                 if (comboInfo.hasCombo) {
                     drawElectricConnections(comboInfo, mouse.dragging, i);
+                    foundCombo = true;
                 }
                 break;
             }
         }
+        if (!foundCombo) {
+            stopElectricSound();
+        }
         return;
     } else if (mouse.dragging >= 0) {
+        stopElectricSound();
         return;
     }
+    
+    stopElectricSound();
     
     for (let i = 9; i < 12; i++) {
         if (pegs[i].rings.every(r => r === -1)) continue;
@@ -1928,6 +1997,19 @@ canvas.addEventListener('mouseup', (e) => {
                     disturbParticles(pegs[i].x, pegs[i].y, 0.5, 150);
                     
                     if (sounds.woodblock) playSound(sounds.woodblock);
+                    
+                    // Stop electric sound immediately (combo is happening)
+                    if (sounds.electric && electricSoundActive) {
+                        sounds.electric.pause();
+                        sounds.electric.currentTime = 0;
+                        sounds.electric.volume = 0;
+                        electricSoundActive = false;
+                        electricSoundFading = false;
+                        if (electricSoundInterval) {
+                            clearInterval(electricSoundInterval);
+                            electricSoundInterval = null;
+                        }
+                    }
                     
                     // Add bounce animation for placed rings
                     animations.push({
@@ -3098,6 +3180,7 @@ async function loadAssets() {
             select: 'assets/sounds/select.ogg',
             woosh: 'assets/sounds/woosh.ogg',
             woodblock: 'assets/sounds/woodblock.wav',
+            electric: 'assets/sounds/fridge-buzz-loop-39612.mp3',
             track1: 'assets/music/track1.ogg',
             combo: [
                 'assets/sounds/do.ogg',
