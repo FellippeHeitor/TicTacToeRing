@@ -20,14 +20,17 @@ let gameState = {
     mode: MODE_NORMAL,
     gameOver: false,
     pauseGame: false,
-    music: true,
-    sfx: true
+    musicVolume: 0.7,
+    sfxVolume: 0.7,
+    prevMusicVolume: 0.7,
+    prevSfxVolume: 0.7
 };
 
 // Settings modal state
 let showSettingsModal = false;
 let settingsButtons = [];
 let settingsModalAlpha = 0;
+let draggingSlider = null;
 
 // Confirmation modal state
 let showConfirmModal = false;
@@ -1038,8 +1041,9 @@ function updateAnimations() {
 
 // Play sound
 function playSound(sound) {
-    if (!gameState.sfx || !sound) return;
+    if (gameState.sfxVolume === 0 || !sound) return;
     const clone = sound.cloneNode();
+    clone.volume = gameState.sfxVolume;
     clone.play().catch(() => {});
 }
 
@@ -1050,6 +1054,9 @@ canvas.addEventListener('mousemove', (e) => {
     mouse.y = e.clientY - rect.top;
     mouseX = mouse.x;
     mouseY = mouse.y;
+    
+    // Handle slider dragging
+    handleSliderDrag(mouseX, mouseY);
 });
 
 canvas.addEventListener('mousedown', (e) => {
@@ -1070,6 +1077,9 @@ canvas.addEventListener('mousedown', (e) => {
 });
 
 canvas.addEventListener('mouseup', (e) => {
+    // Stop slider dragging
+    stopSliderDrag();
+    
     // Check confirmation modal first
     if (handleConfirmClick(mouse.x, mouse.y)) {
         mouse.down = false;
@@ -1166,28 +1176,52 @@ function createSettingsButtons() {
     const modalX = (canvas.width - modalWidth) / 2;
     const modalY = (canvas.height - modalHeight) / 2;
     
-    const buttonWidth = 200;
+    const sliderWidth = 250;
+    const toggleWidth = 50;
     const buttonHeight = 50;
+    const buttonWidth = sliderWidth + toggleWidth + 10;
     const startX = modalX + (modalWidth - buttonWidth) / 2;
     let y = modalY + 100;
-    const spacing = 70;
+    const spacing = 80;
     
     settingsButtons = [
         {
             x: startX,
             y: y,
-            width: buttonWidth,
-            height: buttonHeight,
-            label: `♪ Música: ${gameState.music ? 'ON' : 'OFF'}`,
-            action: 'music'
+            width: sliderWidth,
+            height: 40,
+            label: `♪ Música`,
+            action: 'music-slider',
+            type: 'slider',
+            value: gameState.musicVolume
+        },
+        {
+            x: startX + sliderWidth + 10,
+            y: y,
+            width: toggleWidth,
+            height: 40,
+            label: gameState.musicVolume > 0 ? 'ON' : 'OFF',
+            action: 'music-toggle',
+            type: 'toggle'
         },
         {
             x: startX,
             y: y + spacing,
-            width: buttonWidth,
-            height: buttonHeight,
-            label: `🔊 Efeitos: ${gameState.sfx ? 'ON' : 'OFF'}`,
-            action: 'sfx'
+            width: sliderWidth,
+            height: 40,
+            label: `🔊 Efeitos`,
+            action: 'sfx-slider',
+            type: 'slider',
+            value: gameState.sfxVolume
+        },
+        {
+            x: startX + sliderWidth + 10,
+            y: y + spacing,
+            width: toggleWidth,
+            height: 40,
+            label: gameState.sfxVolume > 0 ? 'ON' : 'OFF',
+            action: 'sfx-toggle',
+            type: 'toggle'
         },
         {
             x: startX,
@@ -1261,47 +1295,144 @@ function drawSettingsModal() {
     
     // Draw buttons
     settingsButtons.forEach((btn, index) => {
-        const isHovered = mouseX >= btn.x && mouseX <= btn.x + btn.width &&
-                         mouseY >= btn.y && mouseY <= btn.y + btn.height;
-        
-        // Button shadow
-        if (isHovered) {
-            ctx.shadowBlur = 20 * settingsModalAlpha;
-            ctx.shadowColor = 'rgba(100, 150, 255, 0.8)';
-        } else {
-            ctx.shadowBlur = 10 * settingsModalAlpha;
+        if (btn.type === 'slider') {
+            // Draw slider label
+            ctx.font = 'bold 18px Arial';
+            ctx.fillStyle = `rgba(255, 255, 255, ${settingsModalAlpha})`;
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'top';
+            ctx.fillText(btn.label, btn.x, btn.y - 25);
+            
+            // Slider track
+            const trackHeight = 8;
+            const trackY = btn.y + btn.height / 2 - trackHeight / 2;
+            
+            ctx.shadowBlur = 5 * settingsModalAlpha;
             ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-        }
-        
-        // Button background
-        const btnGradient = ctx.createLinearGradient(btn.x, btn.y, btn.x, btn.y + btn.height);
-        if (btn.action === 'close') {
-            btnGradient.addColorStop(0, `rgba(180, 50, 50, ${settingsModalAlpha})`);
-            btnGradient.addColorStop(1, `rgba(130, 30, 30, ${settingsModalAlpha})`);
-        } else if (isHovered) {
-            btnGradient.addColorStop(0, `rgba(80, 120, 200, ${settingsModalAlpha})`);
-            btnGradient.addColorStop(1, `rgba(50, 80, 150, ${settingsModalAlpha})`);
+            roundRect(ctx, btn.x, trackY, btn.width, trackHeight, 4);
+            ctx.fillStyle = `rgba(40, 40, 60, ${settingsModalAlpha})`;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            
+            // Slider fill (active part)
+            const fillWidth = btn.width * btn.value;
+            if (fillWidth > 0) {
+                roundRect(ctx, btn.x, trackY, fillWidth, trackHeight, 4);
+                const fillGradient = ctx.createLinearGradient(btn.x, trackY, btn.x + fillWidth, trackY);
+                fillGradient.addColorStop(0, `rgba(100, 150, 255, ${settingsModalAlpha})`);
+                fillGradient.addColorStop(1, `rgba(50, 100, 200, ${settingsModalAlpha})`);
+                ctx.fillStyle = fillGradient;
+                ctx.fill();
+            }
+            
+            // Slider handle
+            const handleX = btn.x + btn.width * btn.value;
+            const handleRadius = 12;
+            const isHovered = mouseX >= handleX - handleRadius && mouseX <= handleX + handleRadius &&
+                            mouseY >= btn.y && mouseY <= btn.y + btn.height;
+            
+            ctx.shadowBlur = isHovered ? 15 * settingsModalAlpha : 10 * settingsModalAlpha;
+            ctx.shadowColor = 'rgba(100, 150, 255, 0.8)';
+            ctx.beginPath();
+            ctx.arc(handleX, btn.y + btn.height / 2, handleRadius, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(200, 220, 255, ${settingsModalAlpha})`;
+            ctx.fill();
+            ctx.strokeStyle = `rgba(100, 150, 255, ${settingsModalAlpha})`;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+            
+            // Volume percentage
+            ctx.font = '14px Arial';
+            ctx.fillStyle = `rgba(200, 200, 220, ${settingsModalAlpha})`;
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'top';
+            ctx.fillText(`${Math.round(btn.value * 100)}%`, btn.x + btn.width, btn.y - 25);
+        } else if (btn.type === 'toggle') {
+            // Toggle button (ON/OFF)
+            const isHovered = mouseX >= btn.x && mouseX <= btn.x + btn.width &&
+                             mouseY >= btn.y && mouseY <= btn.y + btn.height;
+            const isOn = btn.label === 'ON';
+            
+            // Button shadow
+            if (isHovered) {
+                ctx.shadowBlur = 15 * settingsModalAlpha;
+                ctx.shadowColor = 'rgba(100, 150, 255, 0.8)';
+            } else {
+                ctx.shadowBlur = 8 * settingsModalAlpha;
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+            }
+            
+            // Button background
+            const btnGradient = ctx.createLinearGradient(btn.x, btn.y, btn.x, btn.y + btn.height);
+            if (isOn) {
+                btnGradient.addColorStop(0, `rgba(50, 180, 80, ${settingsModalAlpha})`);
+                btnGradient.addColorStop(1, `rgba(30, 130, 50, ${settingsModalAlpha})`);
+            } else {
+                btnGradient.addColorStop(0, `rgba(120, 120, 130, ${settingsModalAlpha})`);
+                btnGradient.addColorStop(1, `rgba(80, 80, 90, ${settingsModalAlpha})`);
+            }
+            
+            roundRect(ctx, btn.x, btn.y, btn.width, btn.height, 8);
+            ctx.fillStyle = btnGradient;
+            ctx.fill();
+            
+            // Button border
+            ctx.strokeStyle = isOn ? `rgba(100, 255, 150, ${0.6 * settingsModalAlpha})` : `rgba(150, 150, 160, ${0.5 * settingsModalAlpha})`;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+            
+            // Button text
+            ctx.font = 'bold 14px Arial';
+            ctx.fillStyle = `rgba(255, 255, 255, ${settingsModalAlpha})`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(btn.label, btn.x + btn.width / 2, btn.y + btn.height / 2);
         } else {
-            btnGradient.addColorStop(0, `rgba(60, 90, 150, ${settingsModalAlpha})`);
-            btnGradient.addColorStop(1, `rgba(40, 60, 100, ${settingsModalAlpha})`);
+            // Regular button (mode, close)
+            const isHovered = mouseX >= btn.x && mouseX <= btn.x + btn.width &&
+                             mouseY >= btn.y && mouseY <= btn.y + btn.height;
+            
+            // Button shadow
+            if (isHovered) {
+                ctx.shadowBlur = 20 * settingsModalAlpha;
+                ctx.shadowColor = 'rgba(100, 150, 255, 0.8)';
+            } else {
+                ctx.shadowBlur = 10 * settingsModalAlpha;
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+            }
+            
+            // Button background
+            const btnGradient = ctx.createLinearGradient(btn.x, btn.y, btn.x, btn.y + btn.height);
+            if (btn.action === 'close') {
+                btnGradient.addColorStop(0, `rgba(180, 50, 50, ${settingsModalAlpha})`);
+                btnGradient.addColorStop(1, `rgba(130, 30, 30, ${settingsModalAlpha})`);
+            } else if (isHovered) {
+                btnGradient.addColorStop(0, `rgba(80, 120, 200, ${settingsModalAlpha})`);
+                btnGradient.addColorStop(1, `rgba(50, 80, 150, ${settingsModalAlpha})`);
+            } else {
+                btnGradient.addColorStop(0, `rgba(60, 90, 150, ${settingsModalAlpha})`);
+                btnGradient.addColorStop(1, `rgba(40, 60, 100, ${settingsModalAlpha})`);
+            }
+            
+            roundRect(ctx, btn.x, btn.y, btn.width, btn.height, 10);
+            ctx.fillStyle = btnGradient;
+            ctx.fill();
+            
+            // Button border
+            ctx.strokeStyle = `rgba(100, 150, 255, ${0.6 * settingsModalAlpha})`;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+            
+            // Button text
+            ctx.font = 'bold 20px Arial';
+            ctx.fillStyle = `rgba(255, 255, 255, ${settingsModalAlpha})`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(btn.label, btn.x + btn.width / 2, btn.y + btn.height / 2);
         }
-        
-        roundRect(ctx, btn.x, btn.y, btn.width, btn.height, 10);
-        ctx.fillStyle = btnGradient;
-        ctx.fill();
-        
-        // Button border
-        ctx.strokeStyle = `rgba(100, 150, 255, ${0.6 * settingsModalAlpha})`;
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        ctx.shadowBlur = 0;
-        
-        // Button text
-        ctx.font = 'bold 20px Arial';
-        ctx.fillStyle = `rgba(255, 255, 255, ${settingsModalAlpha})`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(btn.label, btn.x + btn.width / 2, btn.y + btn.height / 2);
     });
 }
 
@@ -1478,55 +1609,162 @@ function handleSettingsClick(x, y) {
     if (!showSettingsModal || settingsModalAlpha < 0.9) return false;
     
     for (let btn of settingsButtons) {
-        if (x >= btn.x && x <= btn.x + btn.width &&
-            y >= btn.y && y <= btn.y + btn.height) {
-            
-            if (btn.action === 'music') {
-                gameState.music = !gameState.music;
-                if (gameState.music && sounds.track1) {
-                    sounds.track1.loop = true;
-                    sounds.track1.play().catch(e => console.log('Cannot play music'));
-                } else if (sounds.track1) {
-                    sounds.track1.pause();
-                }
-            } else if (btn.action === 'sfx') {
-                gameState.sfx = !gameState.sfx;
-            } else if (btn.action === 'mode') {
-                // Confirm mode change with user
-                const newMode = gameState.mode === MODE_NORMAL ? 'Fácil' : 'Normal';
-                const confirmMsg = `Trocar para modo ${newMode}?\n\nO jogo será reiniciado.`;
+        if (btn.type === 'slider') {
+            // Check if clicking in slider area
+            if (x >= btn.x && x <= btn.x + btn.width &&
+                y >= btn.y && y <= btn.y + btn.height) {
+                // Start dragging
+                draggingSlider = btn;
+                // Immediately update value
+                const newValue = Math.max(0, Math.min(1, (x - btn.x) / btn.width));
+                btn.value = newValue;
                 
-                showConfirm(confirmMsg, (confirmed) => {
-                    if (confirmed) {
-                        // Change mode
-                        gameState.mode = gameState.mode === MODE_NORMAL ? MODE_EASIER : MODE_NORMAL;
-                        
-                        // Reset game state
-                        gameState.score = 0;
-                        gameState.visibleScore = 0;
-                        gameState.level = 0;
-                        gameState.multiplier = 1;
-                        gameState.maxColors = 3;
-                        gameState.gameOver = false;
-                        
-                        // Close settings and restart
-                        toggleSettings();
-                        initGame();
+                if (btn.action === 'music-slider') {
+                    gameState.musicVolume = newValue;
+                    if (newValue > 0) {
+                        gameState.prevMusicVolume = newValue;
                     }
-                });
-                return true;
-            } else if (btn.action === 'close') {
-                toggleSettings();
+                    if (sounds.track1) {
+                        sounds.track1.volume = newValue;
+                        if (newValue > 0 && sounds.track1.paused) {
+                            sounds.track1.loop = true;
+                            sounds.track1.play().catch(e => console.log('Cannot play music'));
+                        } else if (newValue === 0) {
+                            sounds.track1.pause();
+                        }
+                    }
+                } else if (btn.action === 'sfx-slider') {
+                    gameState.sfxVolume = newValue;
+                    if (newValue > 0) {
+                        gameState.prevSfxVolume = newValue;
+                    }
+                    // Play test sound
+                    if (newValue > 0 && sounds.select) {
+                        playSound(sounds.select);
+                    }
+                }
+                
+                createSettingsButtons();
                 return true;
             }
-            
-            // Update button labels
-            createSettingsButtons();
-            return true;
+        } else if (btn.type === 'toggle') {
+            // Toggle button
+            if (x >= btn.x && x <= btn.x + btn.width &&
+                y >= btn.y && y <= btn.y + btn.height) {
+                
+                if (btn.action === 'music-toggle') {
+                    if (gameState.musicVolume > 0) {
+                        // Turn off - save current volume
+                        gameState.prevMusicVolume = gameState.musicVolume;
+                        gameState.musicVolume = 0;
+                        if (sounds.track1) {
+                            sounds.track1.pause();
+                        }
+                    } else {
+                        // Turn on - restore previous volume
+                        gameState.musicVolume = gameState.prevMusicVolume;
+                        if (sounds.track1) {
+                            sounds.track1.volume = gameState.musicVolume;
+                            sounds.track1.loop = true;
+                            sounds.track1.play().catch(e => console.log('Cannot play music'));
+                        }
+                    }
+                } else if (btn.action === 'sfx-toggle') {
+                    if (gameState.sfxVolume > 0) {
+                        // Turn off - save current volume
+                        gameState.prevSfxVolume = gameState.sfxVolume;
+                        gameState.sfxVolume = 0;
+                    } else {
+                        // Turn on - restore previous volume
+                        gameState.sfxVolume = gameState.prevSfxVolume;
+                        // Play test sound
+                        if (sounds.select) {
+                            playSound(sounds.select);
+                        }
+                    }
+                }
+                
+                createSettingsButtons();
+                return true;
+            }
+        } else {
+            // Regular button
+            if (x >= btn.x && x <= btn.x + btn.width &&
+                y >= btn.y && y <= btn.y + btn.height) {
+                
+                if (btn.action === 'mode') {
+                    // Confirm mode change with user
+                    const newMode = gameState.mode === MODE_NORMAL ? 'Fácil' : 'Normal';
+                    const confirmMsg = `Trocar para modo ${newMode}?\n\nO jogo será reiniciado.`;
+                    
+                    showConfirm(confirmMsg, (confirmed) => {
+                        if (confirmed) {
+                            // Change mode
+                            gameState.mode = gameState.mode === MODE_NORMAL ? MODE_EASIER : MODE_NORMAL;
+                            
+                            // Reset game state
+                            gameState.score = 0;
+                            gameState.visibleScore = 0;
+                            gameState.level = 0;
+                            gameState.multiplier = 1;
+                            gameState.maxColors = 3;
+                            gameState.gameOver = false;
+                            
+                            // Close settings and restart
+                            toggleSettings();
+                            initGame();
+                        }
+                    });
+                    return true;
+                } else if (btn.action === 'close') {
+                    toggleSettings();
+                    return true;
+                }
+                
+                // Update button labels
+                createSettingsButtons();
+                return true;
+            }
         }
     }
     
     return false;
+}
+
+// Handle slider dragging
+function handleSliderDrag(x, y) {
+    if (!draggingSlider || !mouse.down) return;
+    
+    const newValue = Math.max(0, Math.min(1, (x - draggingSlider.x) / draggingSlider.width));
+    draggingSlider.value = newValue;
+    
+    if (draggingSlider.action === 'music-slider') {
+        gameState.musicVolume = newValue;
+        if (newValue > 0) {
+            gameState.prevMusicVolume = newValue;
+        }
+        if (sounds.track1) {
+            sounds.track1.volume = newValue;
+            if (newValue > 0 && sounds.track1.paused) {
+                sounds.track1.loop = true;
+                sounds.track1.play().catch(e => console.log('Cannot play music'));
+            } else if (newValue === 0) {
+                sounds.track1.pause();
+            }
+        }
+    } else if (draggingSlider.action === 'sfx-slider') {
+        gameState.sfxVolume = newValue;
+        if (newValue > 0) {
+            gameState.prevSfxVolume = newValue;
+        }
+    }
+    
+    createSettingsButtons();
+}
+
+// Stop slider dragging
+function stopSliderDrag() {
+    draggingSlider = null;
 }
 
 // Show pause menu
@@ -1615,9 +1853,9 @@ function initGame() {
     generateNewSets();
     
     // Start music
-    if (sounds.track1 && gameState.music) {
+    if (sounds.track1 && gameState.musicVolume > 0) {
         sounds.track1.loop = true;
-        sounds.track1.volume = 0.5;
+        sounds.track1.volume = gameState.musicVolume;
         sounds.track1.play().catch(() => {});
     }
 }
