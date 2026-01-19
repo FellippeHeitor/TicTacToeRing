@@ -2962,7 +2962,7 @@ function drawGameOverModal() {
     // Score
     ctx.font = 'bold 24px Arial';
     ctx.fillStyle = `rgba(255, 255, 255, ${gameOverModalAlpha})`;
-    const finalScore = Math.floor(gameState.score);
+    const finalScore = Math.floor(gameState.visibleScore);
     ctx.fillText(`Final Score: ${finalScore}`, canvas.width / 2, modalY + 120);
     
     // High score message
