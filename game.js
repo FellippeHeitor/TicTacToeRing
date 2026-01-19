@@ -1100,7 +1100,7 @@ function drawHUD() {
     ctx.fillStyle = 'rgba(255, 215, 0, 0.7)';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.fillText('RECORDE', 52, hsPanel.y + 10);
+    ctx.fillText('HIGH SCORE', 52, hsPanel.y + 10);
     
     // High score value
     ctx.font = 'bold 22px Arial';
@@ -2052,7 +2052,7 @@ function createSettingsButtons() {
             y: y,
             width: sliderWidth,
             height: 40,
-            label: `♪ Música`,
+            label: `♪ Music`,
             action: 'music-slider',
             type: 'slider',
             value: gameState.musicVolume
@@ -2071,7 +2071,7 @@ function createSettingsButtons() {
             y: y + spacing,
             width: sliderWidth,
             height: 40,
-            label: `🔊 Efeitos`,
+            label: `🔊 SFX`,
             action: 'sfx-slider',
             type: 'slider',
             value: gameState.sfxVolume
@@ -2090,7 +2090,7 @@ function createSettingsButtons() {
             y: y + spacing * 2,
             width: buttonWidth,
             height: buttonHeight,
-            label: `⚡ Conexões Elétricas: ${gameState.electricConnections ? 'ON' : 'OFF'}`,
+            label: `⚡ Electric Connections: ${gameState.electricConnections ? 'ON' : 'OFF'}`,
             action: 'electric'
         },
         {
@@ -2098,7 +2098,7 @@ function createSettingsButtons() {
             y: y + spacing * 3,
             width: buttonWidth,
             height: buttonHeight,
-            label: `⚔ Modo: ${gameState.mode === MODE_NORMAL ? 'Normal' : 'Fácil'}`,
+            label: `⚔ Mode: ${gameState.mode === MODE_NORMAL ? 'Normal' : 'Easy'}`,
             action: 'mode'
         },
         {
@@ -2106,7 +2106,7 @@ function createSettingsButtons() {
             y: y + spacing * 4,
             width: buttonWidth,
             height: buttonHeight,
-            label: '✕ Fechar',
+            label: '✕ Close',
             action: 'close'
         }
     ];
@@ -2176,7 +2176,7 @@ function drawSettingsModal() {
     ctx.textBaseline = 'top';
     ctx.shadowBlur = 5 * settingsModalAlpha;
     ctx.shadowColor = 'rgba(100, 150, 255, 0.8)';
-    ctx.fillText('⚙ Configurações', canvas.width / 2, modalY + 30);
+    ctx.fillText('⚙ Settings', canvas.width / 2, modalY + 30);
     ctx.shadowBlur = 0;
     
     // Draw buttons
@@ -3169,11 +3169,11 @@ function gameLoop() {
             ctx.textBaseline = 'middle';
             ctx.shadowBlur = 20;
             ctx.shadowColor = 'rgba(255, 255, 255, 0.8)';
-            ctx.fillText('PAUSADO', canvas.width / 2, canvas.height / 2 - 30);
+            ctx.fillText('PAUSED', canvas.width / 2, canvas.height / 2 - 30);
             
             ctx.font = '24px Arial';
             ctx.shadowBlur = 10;
-            ctx.fillText('Clique para continuar', canvas.width / 2, canvas.height / 2 + 30);
+            ctx.fillText('Click to continue', canvas.width / 2, canvas.height / 2 + 30);
             ctx.shadowBlur = 0;
         }
         
