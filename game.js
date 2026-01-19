@@ -262,7 +262,7 @@ let ringImages = {};
 // Initialize pegs
 function initPegs() {
     pegs = [];
-    const spacing = 8; // Aumentado para mais espaço
+    const spacing = 6; // Reduced for larger gameboard
     const offsetX = 20; // Deslocamento para centralizar melhor
     let l = -(canvas.height / spacing);
     let j = 0;
@@ -666,48 +666,8 @@ function drawBackground() {
 
 // Draw board divisions
 function drawBoardDivisions() {
-    const spacing = 8;
+    const spacing = 6;
     const offsetX = 20;
-    const pulse = Math.sin(Date.now() / 1000) * 0.15 + 0.35;
-    
-    // Game board area with glow
-    ctx.save();
-    ctx.strokeStyle = `rgba(100, 150, 255, ${pulse})`;
-    ctx.lineWidth = 2;
-    ctx.shadowBlur = 15;
-    ctx.shadowColor = `rgba(100, 150, 255, ${pulse * 0.8})`;
-    ctx.strokeRect(
-        canvas.width / 2 - (canvas.width / spacing) * 1.5 + offsetX,
-        canvas.height / 2 - (canvas.height / spacing) * 1.5,
-        canvas.width / spacing * 3,
-        canvas.height / spacing * 3
-    );
-    
-    // Inner glow
-    ctx.strokeStyle = `rgba(100, 150, 255, ${pulse * 0.5})`;
-    ctx.lineWidth = 1;
-    ctx.shadowBlur = 25;
-    ctx.strokeRect(
-        canvas.width / 2 - (canvas.width / spacing) * 1.5 + offsetX,
-        canvas.height / 2 - (canvas.height / spacing) * 1.5,
-        canvas.width / spacing * 3,
-        canvas.height / spacing * 3
-    );
-    ctx.restore();
-    
-    // Spawn area with warm glow
-    ctx.save();
-    ctx.strokeStyle = `rgba(255, 180, 100, ${pulse * 0.8})`;
-    ctx.lineWidth = 2;
-    ctx.shadowBlur = 12;
-    ctx.shadowColor = `rgba(255, 150, 50, ${pulse * 0.6})`;
-    ctx.strokeRect(
-        pegs[9].x - (canvas.width / spacing / 2),
-        pegs[9].y - (canvas.height / spacing / 2),
-        (pegs[11].x - pegs[9].x) + canvas.width / spacing,
-        canvas.height / spacing
-    );
-    ctx.restore();
     
     // Draw slot indicators
     ctx.save();
