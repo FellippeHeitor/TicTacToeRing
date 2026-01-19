@@ -230,6 +230,11 @@ const MAX_PARTICLES = 5000;
 // Animations
 let animations = [];
 
+// Tutorial state
+let showTutorial = false;
+let tutorialTime = 0;
+const TUTORIAL_DELAY = 5; // Show tutorial after 5 seconds of inactivity
+
 // Mouse state
 let mouse = {
     x: 0,
@@ -1016,6 +1021,74 @@ function drawCenteredText(text, y, size = 1, color = '#fff') {
     ctx.fillText(text, canvas.width / 2, y);
     ctx.restore();
 }
+
+// Draw tutorial
+function drawTutorial() {
+    if (!showTutorial) return;
+    
+    ctx.save();
+    
+    // Find the first spawn peg with rings
+    let targetPeg = null;
+    for (let i = 9; i < 12; i++) {
+        if (!pegs[i].rings.every(r => r === -1)) {
+            targetPeg = pegs[i];
+            break;
+        }
+    }
+    
+    if (!targetPeg) {
+        ctx.restore();
+        return;
+    }
+    
+    // Animated arrow pointing to spawn area
+    const time = Date.now() / 500;
+    const bounce = Math.sin(time) * 10;
+    const arrowX = targetPeg.x;
+    const arrowY = targetPeg.y - 80 + bounce;
+    const arrowSize = 30;
+    
+    // Draw arrow shaft
+    ctx.strokeStyle = 'rgba(255, 255, 100, 0.9)';
+    ctx.lineWidth = 4;
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = 'rgba(255, 255, 100, 0.8)';
+    ctx.beginPath();
+    ctx.moveTo(arrowX, arrowY);
+    ctx.lineTo(arrowX, arrowY + arrowSize);
+    ctx.stroke();
+    
+    // Draw arrow head
+    ctx.fillStyle = 'rgba(255, 255, 100, 0.9)';
+    ctx.beginPath();
+    ctx.moveTo(arrowX, arrowY + arrowSize);
+    ctx.lineTo(arrowX - 10, arrowY + arrowSize - 15);
+    ctx.lineTo(arrowX + 10, arrowY + arrowSize - 15);
+    ctx.closePath();
+    ctx.fill();
+    
+    ctx.shadowBlur = 0;
+    
+    // Draw instruction text
+    ctx.font = 'bold 18px Arial';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+    ctx.lineWidth = 3;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    
+    const text1 = 'Drag these rings';
+    const text2 = 'to the board';
+    
+    ctx.strokeText(text1, arrowX, arrowY - 30);
+    ctx.fillText(text1, arrowX, arrowY - 30);
+    ctx.strokeText(text2, arrowX, arrowY - 10);
+    ctx.fillText(text2, arrowX, arrowY - 10);
+    
+    ctx.restore();
+}
+
 // Helper: rounded rectangle
 function roundRect(ctx, x, y, width, height, radius) {
     ctx.beginPath();
@@ -1947,12 +2020,22 @@ canvas.addEventListener('mousedown', (e) => {
     mouse.down = true;
     mouse.clicked = false;
     
+    // Try to start music if it hasn't started yet (in case autoplay was blocked)
+    if (sounds.track1 && gameState.musicVolume > 0 && sounds.track1.paused && !showIntro) {
+        sounds.track1.loop = true;
+        sounds.track1.volume = gameState.musicVolume;
+        sounds.track1.play().catch(() => {});
+    }
+    
     // Check if clicking on spawn area ring
     if (pegs.length >= 12) {
         for (let i = 9; i < 12; i++) {
             if (dist(pegs[i].x, pegs[i].y, mouse.x, mouse.y) <= 40) {
                 if (!pegs[i].rings.every(r => r === -1)) {
                     mouse.dragging = i;
+                    // Hide tutorial when user starts playing
+                    showTutorial = false;
+                    tutorialTime = 0;
                     break;
                 }
             }
@@ -3104,12 +3187,17 @@ function updateIntro(dt) {
     
     if (introTime > 6 || mouse.clicked) {
         showIntro = false;
-        initGame();
+        const userInteracted = mouse.clicked;
+        initGame(userInteracted);
     }
 }
 
 // Init game
-function initGame() {
+function initGame(userInteracted = true) {
+    // Reset tutorial
+    showTutorial = false;
+    tutorialTime = 0;
+    
     // Load settings and high score on first init
     if (!pegs || pegs.length === 0) {
         loadSettings();
@@ -3131,11 +3219,15 @@ function initGame() {
     addParticles(canvas.width / 2, canvas.height / 2, 500, { r: 255, g: 255, b: 255 });
     generateNewSets();
     
-    // Start music
+    // Start music - always attempt to start if volume > 0
+    // Browser will allow it if there was user interaction or if autoplay is enabled
     if (sounds.track1 && gameState.musicVolume > 0) {
         sounds.track1.loop = true;
         sounds.track1.volume = gameState.musicVolume;
-        sounds.track1.play().catch(() => {});
+        sounds.track1.play().catch(() => {
+            // If autoplay failed (no user interaction), music will start on first click
+            console.log('Music autoplay blocked - will start on first interaction');
+        });
     }
 }
 
@@ -3175,6 +3267,14 @@ function gameLoop() {
                     gameState.gameOver = true;
                 }
             }
+            
+            // Update tutorial timer
+            if (!showTutorial && mouse.dragging === -1 && gameState.score === 0) {
+                tutorialTime += dt;
+                if (tutorialTime >= TUTORIAL_DELAY) {
+                    showTutorial = true;
+                }
+            }
         }
         
         // Draw
@@ -3187,6 +3287,7 @@ function gameLoop() {
         drawRipples();
         updateAnimations();
         drawHUD();
+        drawTutorial(); // Draw tutorial if active
         
         // Screen flash effect
         if (screenFlash > 0) {
