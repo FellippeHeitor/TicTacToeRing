@@ -2163,6 +2163,172 @@ canvas.addEventListener('mouseup', (e) => {
     mouse.dragging = -1;
 });
 
+// Touch event support for mobile
+canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const touch = e.touches[0];
+    mouse.x = touch.clientX - rect.left;
+    mouse.y = touch.clientY - rect.top;
+    mouseX = mouse.x;
+    mouseY = mouse.y;
+    
+    mouse.down = true;
+    mouse.clicked = false;
+    
+    // Try to start music if it hasn't started yet (in case autoplay was blocked)
+    if (sounds.track1 && gameState.musicVolume > 0 && sounds.track1.paused && !showIntro) {
+        sounds.track1.loop = true;
+        sounds.track1.volume = gameState.musicVolume;
+        sounds.track1.play().catch(() => {});
+    }
+    
+    // Check if clicking on spawn area ring
+    if (pegs.length >= 12) {
+        for (let i = 9; i < 12; i++) {
+            if (dist(pegs[i].x, pegs[i].y, mouse.x, mouse.y) <= 40) {
+                if (!pegs[i].rings.every(r => r === -1)) {
+                    mouse.dragging = i;
+                    // Hide tutorial when user starts playing
+                    showTutorial = false;
+                    tutorialTime = 0;
+                    break;
+                }
+            }
+        }
+    }
+}, { passive: false });
+
+canvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const touch = e.touches[0];
+    mouse.x = touch.clientX - rect.left;
+    mouse.y = touch.clientY - rect.top;
+    mouseX = mouse.x;
+    mouseY = mouse.y;
+    
+    // Handle slider dragging
+    handleSliderDrag(mouseX, mouseY);
+}, { passive: false });
+
+canvas.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    
+    // Stop slider dragging
+    stopSliderDrag();
+    
+    // Check if paused - click anywhere to unpause
+    if (gameState.pauseGame && !showSettingsModal && !showConfirmModal && !showGameOverModal) {
+        gameState.pauseGame = false;
+        // Restore music volume
+        if (sounds.track1) {
+            sounds.track1.volume = gameState.pausedMusicVolume;
+        }
+        mouse.down = false;
+        mouse.dragging = -1;
+        return;
+    }
+    
+    // Check game over modal first
+    if (handleGameOverClick(mouse.x, mouse.y)) {
+        mouse.down = false;
+        mouse.dragging = -1;
+        return;
+    }
+    
+    // Check confirmation modal first
+    if (handleConfirmClick(mouse.x, mouse.y)) {
+        mouse.down = false;
+        mouse.dragging = -1;
+        return;
+    }
+    
+    // Check settings modal
+    if (handleSettingsClick(mouse.x, mouse.y)) {
+        mouse.down = false;
+        mouse.dragging = -1;
+        return;
+    }
+    
+    if (mouse.dragging >= 0) {
+        // Try to place on board
+        let placed = false;
+        
+        for (let i = 0; i < 9; i++) {
+            if (dist(pegs[i].x, pegs[i].y, mouse.x, mouse.y) <= 40) {
+                // Check if can place - rings can stack (smaller fits inside larger)
+                // Size 0 = largest, Size 1 = medium, Size 2 = smallest
+                let canPlace = true;
+                const dragSet = pegs[mouse.dragging].rings;
+                const targetSet = pegs[i].rings;
+                
+                // Check each ring size in the drag set
+                for (let j = 0; j < 3; j++) {
+                    if (dragSet[j] >= 0) {
+                        // Can't place if same size slot is already occupied
+                        if (targetSet[j] >= 0) {
+                            canPlace = false;
+                            break;
+                        }
+                    }
+                }
+                
+                if (canPlace) {
+                    // Place rings
+                    for (let j = 0; j < 3; j++) {
+                        if (dragSet[j] >= 0) {
+                            pegs[i].rings[j] = dragSet[j];
+                            
+                            // Add ripple effect for each placed ring
+                            addRipple(pegs[i].x, pegs[i].y, dragSet[j]);
+                        }
+                    }
+                    pegs[mouse.dragging].rings = [...emptySet];
+                    
+                    // Disturb ambient particles
+                    disturbParticles(pegs[i].x, pegs[i].y, 0.5, 150);
+                    
+                    if (sounds.woodblock) playSound(sounds.woodblock);
+                    
+                    // Stop electric sound immediately (combo is happening)
+                    if (sounds.electric && electricSoundActive) {
+                        sounds.electric.pause();
+                        sounds.electric.currentTime = 0;
+                        sounds.electric.volume = 0;
+                        electricSoundActive = false;
+                        electricSoundFading = false;
+                        if (electricSoundInterval) {
+                            clearInterval(electricSoundInterval);
+                            electricSoundInterval = null;
+                        }
+                    }
+                    
+                    checkMatches(i);
+                    placed = true;
+                    break;
+                }
+            }
+        }
+        
+        // If not placed on board, return to spawn
+        if (!placed) {
+            if (sounds.fail) playSound(sounds.fail);
+        }
+    } else {
+        // Check button clicks
+        buttons.forEach((btn, i) => {
+            if (mouse.x >= btn.x && mouse.x <= btn.x + btn.w &&
+                mouse.y >= btn.y && mouse.y <= btn.y + btn.h) {
+                handleButtonClick(i);
+            }
+        });
+    }
+    
+    mouse.down = false;
+    mouse.dragging = -1;
+}, { passive: false });
+
 // Handle button clicks
 function handleButtonClick(index) {
     if (index === 0) {
@@ -3350,6 +3516,11 @@ function gameLoop() {
 canvas.addEventListener('click', () => {
     mouse.clicked = true;
 });
+
+// Touch detection for click (for intro skip on mobile)
+canvas.addEventListener('touchstart', () => {
+    mouse.clicked = true;
+}, { once: false });
 
 // Load assets and start
 async function loadAssets() {
