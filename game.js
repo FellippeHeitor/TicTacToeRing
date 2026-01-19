@@ -509,7 +509,9 @@ function initBackgroundStars() {
             y: Math.random() * canvas.height,
             size: Math.random() * 2 + 0.5,
             speed: Math.random() * 0.3 + 0.1,
-            brightness: Math.random()
+            brightness: Math.random(),
+            vx: 0,
+            vy: 0
         });
     }
 }
@@ -528,6 +530,41 @@ function initAmbientParticles() {
             life: Math.random()
         });
     }
+}
+
+// Disturb ambient particles near a position
+function disturbParticles(x, y, force = 1, radius = 200) {
+    // Disturb ambient particles
+    ambientParticles.forEach(p => {
+        const dx = p.x - x;
+        const dy = p.y - y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance < radius) {
+            const angle = Math.atan2(dy, dx);
+            const distanceFactor = 1 - (distance / radius);
+            const pushForce = force * distanceFactor * 8;
+            
+            p.vx += Math.cos(angle) * pushForce;
+            p.vy += Math.sin(angle) * pushForce;
+        }
+    });
+    
+    // Disturb background stars
+    backgroundStars.forEach(star => {
+        const dx = star.x - x;
+        const dy = star.y - y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance < radius) {
+            const angle = Math.atan2(dy, dx);
+            const distanceFactor = 1 - (distance / radius);
+            const pushForce = force * distanceFactor * 5; // Stars move less than particles
+            
+            star.vx += Math.cos(angle) * pushForce;
+            star.vy += Math.sin(angle) * pushForce;
+        }
+    });
 }
 
 // Draw background
@@ -559,11 +596,23 @@ function drawBackground() {
     // Update and draw background stars
     ctx.save();
     backgroundStars.forEach(star => {
-        star.y += star.speed;
+        star.y += star.speed + star.vy;
+        star.x += star.vx;
+        
+        // Apply damping
+        star.vx *= 0.92;
+        star.vy *= 0.92;
+        
         if (star.y > canvas.height) {
             star.y = 0;
             star.x = Math.random() * canvas.width;
+            star.vx = 0;
+            star.vy = 0;
         }
+        
+        // Wrap horizontally
+        if (star.x < 0) star.x = canvas.width;
+        if (star.x > canvas.width) star.x = 0;
         
         star.brightness = 0.3 + Math.sin(Date.now() / 1000 + star.x) * 0.3;
         
@@ -581,6 +630,10 @@ function drawBackground() {
         p.x += p.vx;
         p.y += p.vy;
         p.life += 0.01;
+        
+        // Apply damping to velocities
+        p.vx *= 0.95;
+        p.vy *= 0.95;
         
         // Wrap around
         if (p.x < 0) p.x = canvas.width;
@@ -1356,6 +1409,9 @@ function checkMatches(pegIndex) {
         delPegs[pegIndex].rings = [...emptySet];
         scored = true;
         
+        // Disturb ambient particles strongly
+        disturbParticles(pegs[pegIndex].x, pegs[pegIndex].y, 2, 250);
+        
         // Add particles
         const ringColor = ringColors[rings[0]];
         addParticles(pegs[pegIndex].x, pegs[pegIndex].y, 70, ringColor);
@@ -1400,6 +1456,11 @@ function checkMatches(pegIndex) {
             
             // For each common color, mark all rings of that color for deletion
             commonColors.forEach(matchColor => {
+                // Disturb particles along the entire line strongly
+                line.forEach(pegIdx => {
+                    disturbParticles(pegs[pegIdx].x, pegs[pegIdx].y, 2.5, 300);
+                });
+                
                 // Mark all rings of this color in these pegs for deletion
                 line.forEach(pegIdx => {
                     for (let s = 0; s < 3; s++) {
@@ -1862,6 +1923,9 @@ canvas.addEventListener('mouseup', (e) => {
                         }
                     }
                     pegs[mouse.dragging].rings = [...emptySet];
+                    
+                    // Disturb ambient particles
+                    disturbParticles(pegs[i].x, pegs[i].y, 0.5, 150);
                     
                     if (sounds.woodblock) playSound(sounds.woodblock);
                     
@@ -2872,7 +2936,7 @@ function updateIntro(dt) {
     // Author
     ctx.font = '16px monospace';
     ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.7})`;
-    ctx.fillText('Fellippe Heitor, 2020', canvas.width / 2, canvas.height - 60);
+    ctx.fillText('Fellippe Heitor, 2020-2026', canvas.width / 2, canvas.height - 60);
     
     ctx.restore();
     
