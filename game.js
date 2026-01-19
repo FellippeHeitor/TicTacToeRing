@@ -1180,7 +1180,8 @@ function drawHUD() {
 function createMainButtons() {
     buttons = [
         { x: canvas.width - 100, y: 20, w: 80, h: 35, text: 'Settings' },
-        { x: canvas.width - 100, y: 65, w: 80, h: 35, text: 'Pause' }
+        { x: canvas.width - 100, y: 65, w: 80, h: 35, text: 'Pause' },
+        { x: canvas.width - 100, y: 110, w: 80, h: 35, text: 'Quit' }
     ];
 }
 
@@ -2064,6 +2065,12 @@ function handleButtonClick(index) {
             // Restore music volume when unpausing
             sounds.track1.volume = gameState.pausedMusicVolume;
         }
+    } else if (index === 2) {
+        // Quit - trigger immediate game over
+        gameState.gameOver = true;
+        showGameOverModal = true;
+        
+        if (sounds.fail) playSound(sounds.fail);
     }
 }
 
@@ -2644,9 +2651,7 @@ function drawGameOverModal() {
     const btnWidth = 180;
     const btnHeight = 50;
     const btnY = modalY + modalHeight - 80;
-    const btnSpacing = 20;
-    const btn1X = modalX + (modalWidth / 2) - btnWidth - btnSpacing / 2;
-    const btn2X = modalX + (modalWidth / 2) + btnSpacing / 2;
+    const btn1X = modalX + (modalWidth / 2) - btnWidth / 2; // Center single button
     
     // Play again button
     const playHovered = mouseX >= btn1X && mouseX <= btn1X + btnWidth &&
@@ -2682,38 +2687,6 @@ function drawGameOverModal() {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('Play Again', btn1X + btnWidth / 2, btnY + btnHeight / 2);
-    
-    // Menu button
-    const menuHovered = mouseX >= btn2X && mouseX <= btn2X + btnWidth &&
-                       mouseY >= btnY && mouseY <= btnY + btnHeight;
-    
-    if (menuHovered) {
-        ctx.shadowBlur = 20 * gameOverModalAlpha;
-        ctx.shadowColor = 'rgba(255, 150, 100, 0.8)';
-    } else {
-        ctx.shadowBlur = 10 * gameOverModalAlpha;
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-    }
-    
-    const menuGradient = ctx.createLinearGradient(btn2X, btnY, btn2X, btnY + btnHeight);
-    if (menuHovered) {
-        menuGradient.addColorStop(0, `rgba(180, 100, 50, ${gameOverModalAlpha})`);
-        menuGradient.addColorStop(1, `rgba(130, 70, 30, ${gameOverModalAlpha})`);
-    } else {
-        menuGradient.addColorStop(0, `rgba(150, 80, 40, ${gameOverModalAlpha})`);
-        menuGradient.addColorStop(1, `rgba(100, 50, 20, ${gameOverModalAlpha})`);
-    }
-    
-    roundRect(ctx, btn2X, btnY, btnWidth, btnHeight, 10);
-    ctx.fillStyle = menuGradient;
-    ctx.fill();
-    ctx.strokeStyle = `rgba(255, 150, 100, ${0.6 * gameOverModalAlpha})`;
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-    
-    ctx.fillStyle = `rgba(255, 255, 255, ${gameOverModalAlpha})`;
-    ctx.fillText('Menu', btn2X + btnWidth / 2, btnY + btnHeight / 2);
 }
 
 // Handle game over modal clicks
@@ -2728,9 +2701,7 @@ function handleGameOverClick(x, y) {
     const btnWidth = 180;
     const btnHeight = 50;
     const btnY = modalY + modalHeight - 80;
-    const btnSpacing = 20;
-    const btn1X = modalX + (modalWidth / 2) - btnWidth - btnSpacing / 2;
-    const btn2X = modalX + (modalWidth / 2) + btnSpacing / 2;
+    const btn1X = modalX + (modalWidth / 2) - btnWidth / 2;
     
     // Play again button
     if (x >= btn1X && x <= btn1X + btnWidth &&
@@ -2755,27 +2726,6 @@ function handleGameOverClick(x, y) {
         }
         
         initGame();
-        return true;
-    }
-    
-    // Menu button
-    if (x >= btn2X && x <= btn2X + btnWidth &&
-        y >= btnY && y <= btnY + btnHeight) {
-        showGameOverModal = false;
-        gameOverModalAlpha = 0;
-        gameState.gameOver = false;
-        
-        // Stop music
-        if (sounds.track1) {
-            sounds.track1.pause();
-            sounds.track1.currentTime = 0;
-        }
-        
-        // Reset to intro
-        showIntro = true;
-        introTime = 0;
-        mouse.clicked = false; // Reset to prevent skipping intro
-        initIntro();
         return true;
     }
     
@@ -2974,6 +2924,9 @@ let showIntro = true;
 let introRings = [];
 
 function initIntro() {
+    // Clear existing intro rings
+    introRings = [];
+    
     // Add particle burst at center
     for (let i = 0; i < 200; i++) {
         const angle = Math.random() * Math.PI * 2;
