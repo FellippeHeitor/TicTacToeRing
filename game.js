@@ -108,41 +108,55 @@ let comboY = 0;
 let highscoreGlow = 0;
 let multiplierPulse = 0;
 
-// Ring colors (10 colors)
+// Visual effects state
+let backgroundStars = [];
+let screenFlash = 0;
+let screenZoom = 1;
+let dragTrails = [];
+let rippleEffects = [];
+let ambientParticles = [];
+let timeOffset = 0;
+let vignettePulse = 0;
+
+// Ring colors (10 colors) - Enhanced saturation
 const ringColors = [
-    { r: 0, g: 78, b: 249 },     // blue
-    { r: 0, g: 100, b: 0 },       // green
-    { r: 222, g: 61, b: 44 },     // red
-    { r: 216, g: 216, b: 44 },    // yellow
-    { r: 233, g: 139, b: 17 },    // orange
-    { r: 222, g: 105, b: 161 },   // pink
-    { r: 139, g: 11, b: 205 },    // purple
-    { r: 55, g: 211, b: 211 },    // cyan
+    { r: 0, g: 120, b: 255 },     // bright blue
+    { r: 0, g: 200, b: 80 },       // vibrant green
+    { r: 255, g: 50, b: 50 },     // bright red
+    { r: 255, g: 230, b: 0 },    // vivid yellow
+    { r: 255, g: 150, b: 0 },    // vibrant orange
+    { r: 255, g: 100, b: 200 },   // hot pink
+    { r: 180, g: 0, b: 255 },    // vivid purple
+    { r: 0, g: 255, b: 255 },    // bright cyan
     { r: 255, g: 255, b: 255 },   // white
-    { r: 100, g: 100, b: 100 }    // dark gray
+    { r: 80, g: 80, b: 80 }    // dark gray
 ];
 
 // Combo messages
 const megaComboMsg = ['Fantastic', 'Outstanding', 'Amazing', 'Awesome', 'MEGA', 'SUPER'];
 
-// Particle class for combo explosions
+// Particle class for combo explosions with varied shapes
 class Particle {
     constructor(x, y, color) {
         this.x = x;
         this.y = y;
-        this.vx = (Math.random() - 0.5) * 8;
-        this.vy = (Math.random() - 0.5) * 8 - 2;
+        this.vx = (Math.random() - 0.5) * 12;
+        this.vy = (Math.random() - 0.5) * 12 - 3;
         this.life = 1;
         this.decay = 0.015 + Math.random() * 0.015;
-        this.size = 3 + Math.random() * 4;
+        this.size = 3 + Math.random() * 5;
         this.color = color;
-        this.gravity = 0.15;
+        this.gravity = 0.2;
+        this.rotation = Math.random() * Math.PI * 2;
+        this.rotationSpeed = (Math.random() - 0.5) * 0.3;
+        this.shape = Math.floor(Math.random() * 4); // 0: circle, 1: star, 2: square, 3: triangle
     }
     
     update() {
         this.x += this.vx;
         this.y += this.vy;
         this.vy += this.gravity;
+        this.rotation += this.rotationSpeed;
         this.life -= this.decay;
         return this.life > 0;
     }
@@ -150,10 +164,52 @@ class Particle {
     draw(ctx) {
         ctx.save();
         ctx.globalAlpha = this.life;
-        ctx.fillStyle = this.color;
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(this.rotation);
+        
+        if (this.shape === 0) {
+            // Circle
+            ctx.fillStyle = this.color;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = this.color;
+            ctx.beginPath();
+            ctx.arc(0, 0, this.size, 0, Math.PI * 2);
+            ctx.fill();
+        } else if (this.shape === 1) {
+            // Star
+            ctx.fillStyle = this.color;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = this.color;
+            ctx.beginPath();
+            for (let i = 0; i < 5; i++) {
+                const angle = (i * 4 * Math.PI) / 5;
+                const r = i % 2 === 0 ? this.size : this.size / 2;
+                const px = Math.cos(angle) * r;
+                const py = Math.sin(angle) * r;
+                if (i === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+            ctx.fill();
+        } else if (this.shape === 2) {
+            // Square
+            ctx.fillStyle = this.color;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = this.color;
+            ctx.fillRect(-this.size / 2, -this.size / 2, this.size, this.size);
+        } else {
+            // Triangle
+            ctx.fillStyle = this.color;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = this.color;
+            ctx.beginPath();
+            ctx.moveTo(0, -this.size);
+            ctx.lineTo(this.size, this.size);
+            ctx.lineTo(-this.size, this.size);
+            ctx.closePath();
+            ctx.fill();
+        }
+        
         ctx.restore();
     }
 }
@@ -292,7 +348,7 @@ function drawCircle(x, y, radius, color) {
     ctx.fill();
 }
 
-// Draw ring
+// Draw ring with 3D effect, gradients, reflections
 function drawRing(x, y, size, colorIndex) {
     // Size 1 = smallest (inner), Size 2 = medium, Size 3 = largest (outer)
     const outerRadius = size * 14;
@@ -300,28 +356,252 @@ function drawRing(x, y, size, colorIndex) {
     const ringWidth = outerRadius - innerRadius;
     const ringRadius = (outerRadius + innerRadius) / 2;
     const color = ringColors[colorIndex];
-    const colorStr = `rgb(${color.r}, ${color.g}, ${color.b})`;
     
-    // Draw ring as a thick stroke
-    ctx.strokeStyle = colorStr;
+    // Enhanced saturation for multiplier
+    const satBoost = Math.min(1.5, 1 + gameState.multiplier * 0.05);
+    const r = Math.min(255, color.r * satBoost);
+    const g = Math.min(255, color.g * satBoost);
+    const b = Math.min(255, color.b * satBoost);
+    
+    ctx.save();
+    
+    // Ring shadow (projected below)
+    if (mouse.dragging === -1 || y !== mouse.y) {
+        ctx.beginPath();
+        ctx.arc(x, y + 3, ringRadius, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.lineWidth = ringWidth;
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+        ctx.stroke();
+    }
+    
+    // Main ring with 3D gradient
+    ctx.shadowBlur = 0;
+    const gradient = ctx.createRadialGradient(
+        x - ringRadius * 0.3, y - ringRadius * 0.3, innerRadius,
+        x, y, outerRadius
+    );
+    gradient.addColorStop(0, `rgb(${Math.min(255, r + 40)}, ${Math.min(255, g + 40)}, ${Math.min(255, b + 40)})`);
+    gradient.addColorStop(0.5, `rgb(${r}, ${g}, ${b})`);
+    gradient.addColorStop(1, `rgb(${r * 0.6}, ${g * 0.6}, ${b * 0.6})`);
+    
+    ctx.strokeStyle = gradient;
     ctx.lineWidth = ringWidth;
     ctx.beginPath();
     ctx.arc(x, y, ringRadius, 0, Math.PI * 2);
     ctx.stroke();
+    
+    // Inner shadow for depth
+    ctx.beginPath();
+    ctx.arc(x, y, innerRadius + 2, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(0, 0, 0, 0.3)`;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    
+    // Highlight/reflection on top
+    const highlightGradient = ctx.createRadialGradient(
+        x - ringRadius * 0.4, y - ringRadius * 0.4, 0,
+        x - ringRadius * 0.4, y - ringRadius * 0.4, ringRadius * 0.6
+    );
+    highlightGradient.addColorStop(0, 'rgba(255, 255, 255, 0.6)');
+    highlightGradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.2)');
+    highlightGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    
+    ctx.beginPath();
+    ctx.arc(x, y, ringRadius, -Math.PI * 0.75, -Math.PI * 0.25);
+    ctx.strokeStyle = highlightGradient;
+    ctx.lineWidth = ringWidth * 0.5;
+    ctx.stroke();
+    
+    // Neon glow for high multipliers
+    if (gameState.multiplier > 2) {
+        ctx.shadowBlur = 15 + gameState.multiplier * 2;
+        ctx.shadowColor = `rgba(${r}, ${g}, ${b}, ${0.6})`;
+        ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.3)`;
+        ctx.lineWidth = ringWidth;
+        ctx.beginPath();
+        ctx.arc(x, y, ringRadius, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+    
+    ctx.restore();
+}
+
+// Add drag trail
+function addDragTrail(x, y, colorIndex) {
+    const color = ringColors[colorIndex];
+    dragTrails.push({
+        x, y,
+        color: `rgb(${color.r}, ${color.g}, ${color.b})`,
+        life: 1,
+        size: 15 + Math.random() * 10
+    });
+}
+
+// Add ripple effect
+function addRipple(x, y, colorIndex) {
+    const color = ringColors[colorIndex];
+    rippleEffects.push({
+        x, y,
+        radius: 0,
+        maxRadius: 80,
+        color: `rgb(${color.r}, ${color.g}, ${color.b})`,
+        life: 1
+    });
+}
+
+// Draw trails
+function drawDragTrails() {
+    ctx.save();
+    dragTrails = dragTrails.filter(trail => {
+        trail.life -= 0.05;
+        if (trail.life <= 0) return false;
+        
+        ctx.globalAlpha = trail.life * 0.5;
+        ctx.fillStyle = trail.color;
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = trail.color;
+        ctx.beginPath();
+        ctx.arc(trail.x, trail.y, trail.size * trail.life, 0, Math.PI * 2);
+        ctx.fill();
+        
+        return true;
+    });
+    ctx.restore();
+}
+
+// Draw ripple effects
+function drawRipples() {
+    ctx.save();
+    rippleEffects = rippleEffects.filter(ripple => {
+        ripple.radius += 4;
+        ripple.life -= 0.02;
+        if (ripple.life <= 0 || ripple.radius > ripple.maxRadius) return false;
+        
+        ctx.strokeStyle = ripple.color;
+        ctx.globalAlpha = ripple.life;
+        ctx.lineWidth = 3;
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = ripple.color;
+        ctx.beginPath();
+        ctx.arc(ripple.x, ripple.y, ripple.radius, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        // Inner ripple
+        ctx.globalAlpha = ripple.life * 0.5;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(ripple.x, ripple.y, ripple.radius * 0.7, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        return true;
+    });
+    ctx.restore();
+}
+
+// Initialize background stars
+function initBackgroundStars() {
+    backgroundStars = [];
+    for (let i = 0; i < 150; i++) {
+        backgroundStars.push({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            size: Math.random() * 2 + 0.5,
+            speed: Math.random() * 0.3 + 0.1,
+            brightness: Math.random()
+        });
+    }
+}
+
+// Initialize ambient particles
+function initAmbientParticles() {
+    ambientParticles = [];
+    for (let i = 0; i < 30; i++) {
+        ambientParticles.push({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            vx: (Math.random() - 0.5) * 0.5,
+            vy: (Math.random() - 0.5) * 0.5,
+            size: Math.random() * 3 + 1,
+            hue: Math.random() * 60 + 180,
+            life: Math.random()
+        });
+    }
 }
 
 // Draw background
 function drawBackground() {
-    // Gradient background
-    const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-    gradient.addColorStop(0, '#1a0e2e');
-    gradient.addColorStop(1, '#16162d');
+    // Animated gradient background
+    const time = Date.now() / 5000;
+    const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+    
+    // Shifting colors
+    const hue1 = 250 + Math.sin(time) * 20;
+    const hue2 = 270 + Math.cos(time * 0.7) * 20;
+    
+    gradient.addColorStop(0, `hsl(${hue1}, 60%, 10%)`);
+    gradient.addColorStop(0.5, `hsl(${(hue1 + hue2) / 2}, 50%, 12%)`);
+    gradient.addColorStop(1, `hsl(${hue2}, 55%, 9%)`);
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    // Subtle scan lines
-    ctx.fillStyle = 'rgba(139, 116, 177, 0.02)';
-    for (let i = 0; i < canvas.height; i += 10) {
+    // Vignette effect
+    const vignetteGradient = ctx.createRadialGradient(
+        canvas.width / 2, canvas.height / 2, 0,
+        canvas.width / 2, canvas.height / 2, Math.max(canvas.width, canvas.height) * 0.7
+    );
+    vignetteGradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    vignetteGradient.addColorStop(1, `rgba(0, 0, 0, ${0.3 + vignettePulse * 0.2})`);
+    ctx.fillStyle = vignetteGradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Update and draw background stars
+    ctx.save();
+    backgroundStars.forEach(star => {
+        star.y += star.speed;
+        if (star.y > canvas.height) {
+            star.y = 0;
+            star.x = Math.random() * canvas.width;
+        }
+        
+        star.brightness = 0.3 + Math.sin(Date.now() / 1000 + star.x) * 0.3;
+        
+        ctx.fillStyle = `rgba(200, 220, 255, ${star.brightness})`;
+        ctx.shadowBlur = star.size * 2;
+        ctx.shadowColor = 'rgba(150, 200, 255, 0.8)';
+        ctx.fillRect(star.x, star.y, star.size, star.size);
+    });
+    ctx.shadowBlur = 0;
+    ctx.restore();
+    
+    // Update and draw ambient particles
+    ctx.save();
+    ambientParticles.forEach(p => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life += 0.01;
+        
+        // Wrap around
+        if (p.x < 0) p.x = canvas.width;
+        if (p.x > canvas.width) p.x = 0;
+        if (p.y < 0) p.y = canvas.height;
+        if (p.y > canvas.height) p.y = 0;
+        
+        const alpha = (Math.sin(p.life) + 1) * 0.15;
+        ctx.fillStyle = `hsla(${p.hue}, 80%, 60%, ${alpha})`;
+        ctx.shadowBlur = p.size * 3;
+        ctx.shadowColor = `hsla(${p.hue}, 100%, 70%, 0.5)`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+    });
+    ctx.shadowBlur = 0;
+    ctx.restore();
+    
+    // Scanlines
+    ctx.fillStyle = 'rgba(139, 116, 177, 0.03)';
+    for (let i = 0; i < canvas.height; i += 4) {
         ctx.fillRect(0, i, canvas.width, 1);
     }
 }
@@ -330,10 +610,14 @@ function drawBackground() {
 function drawBoardDivisions() {
     const spacing = 8;
     const offsetX = 20;
+    const pulse = Math.sin(Date.now() / 1000) * 0.15 + 0.35;
     
-    // Game board area
-    ctx.strokeStyle = 'rgba(0, 50, 100, 0.3)';
+    // Game board area with glow
+    ctx.save();
+    ctx.strokeStyle = `rgba(100, 150, 255, ${pulse})`;
     ctx.lineWidth = 2;
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = `rgba(100, 150, 255, ${pulse * 0.8})`;
     ctx.strokeRect(
         canvas.width / 2 - (canvas.width / spacing) * 1.5 + offsetX,
         canvas.height / 2 - (canvas.height / spacing) * 1.5,
@@ -341,20 +625,75 @@ function drawBoardDivisions() {
         canvas.height / spacing * 3
     );
     
-    // Spawn area
-    ctx.strokeStyle = 'rgba(255, 150, 50, 0.2)';
+    // Inner glow
+    ctx.strokeStyle = `rgba(100, 150, 255, ${pulse * 0.5})`;
+    ctx.lineWidth = 1;
+    ctx.shadowBlur = 25;
+    ctx.strokeRect(
+        canvas.width / 2 - (canvas.width / spacing) * 1.5 + offsetX,
+        canvas.height / 2 - (canvas.height / spacing) * 1.5,
+        canvas.width / spacing * 3,
+        canvas.height / spacing * 3
+    );
+    ctx.restore();
+    
+    // Spawn area with warm glow
+    ctx.save();
+    ctx.strokeStyle = `rgba(255, 180, 100, ${pulse * 0.8})`;
+    ctx.lineWidth = 2;
+    ctx.shadowBlur = 12;
+    ctx.shadowColor = `rgba(255, 150, 50, ${pulse * 0.6})`;
     ctx.strokeRect(
         pegs[9].x - (canvas.width / spacing / 2),
         pegs[9].y - (canvas.height / spacing / 2),
         (pegs[11].x - pegs[9].x) + canvas.width / spacing,
         canvas.height / spacing
     );
+    ctx.restore();
+    
+    // Draw slot indicators
+    ctx.save();
+    for (let i = 0; i < 9; i++) {
+        const slotPulse = Math.sin(Date.now() / 800 + i * 0.3) * 0.1 + 0.15;
+        ctx.fillStyle = `rgba(100, 150, 255, ${slotPulse})`;
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = `rgba(100, 150, 255, ${slotPulse})`;
+        ctx.beginPath();
+        ctx.arc(pegs[i].x, pegs[i].y, 35, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.restore();
 }
 
 // Draw pegs
 function drawPegs() {
     for (let i = 0; i < 9; i++) {
-        drawCircle(pegs[i].x, pegs[i].y, 3, '#fff');
+        // Peg shadow
+        ctx.save();
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+        ctx.beginPath();
+        ctx.arc(pegs[i].x, pegs[i].y + 2, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        
+        // Peg with 3D gradient
+        const pegGradient = ctx.createRadialGradient(
+            pegs[i].x - 1, pegs[i].y - 1, 0,
+            pegs[i].x, pegs[i].y, 5
+        );
+        pegGradient.addColorStop(0, '#ffffff');
+        pegGradient.addColorStop(0.7, '#e0e0e0');
+        pegGradient.addColorStop(1, '#a0a0a0');
+        
+        ctx.fillStyle = pegGradient;
+        ctx.shadowBlur = 4;
+        ctx.shadowColor = 'rgba(255, 255, 255, 0.5)';
+        ctx.beginPath();
+        ctx.arc(pegs[i].x, pegs[i].y, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
     }
 }
 
@@ -570,6 +909,14 @@ function drawRings() {
         if (mouse.dragging === i) {
             x = mouse.x;
             y = mouse.y;
+            
+            // Add drag trail for each ring
+            for (let ringIdx = 0; ringIdx < 3; ringIdx++) {
+                const colorIndex = peg.rings[ringIdx];
+                if (colorIndex >= 0 && Math.random() < 0.3) {
+                    addDragTrail(x, y, colorIndex);
+                }
+            }
         }
         
         // Draw rings from largest to smallest (so smaller appear on top/inside)
@@ -619,6 +966,11 @@ function roundRect(ctx, x, y, width, height, radius) {
 // Ease out cubic function
 function easeOutCubic(t) {
     return 1 - Math.pow(1 - t, 3);
+}
+
+function easeOutElastic(t) {
+    const p = 0.3;
+    return Math.pow(2, -10 * t) * Math.sin((t - p / 4) * (2 * Math.PI) / p) + 1;
 }
 
 // Draw HUD
@@ -887,12 +1239,23 @@ function generateNewSets() {
             }
         }
         
-        // Flash effect
+        // Flash effect and spawn animation
         animations.push({
             type: 'spawn',
             startTime: Date.now(),
             duration: 1000
         });
+        
+        // Add scale animation for new spawns
+        for (let i = 9; i < 12; i++) {
+            animations.push({
+                type: 'spawn-scale',
+                pegIdx: i,
+                startTime: Date.now(),
+                duration: 500,
+                scale: 0
+            });
+        }
     }
 }
 
@@ -1080,9 +1443,18 @@ function checkMatches(pegIndex) {
         gameState.score += scoreIncrease;
         gameState.multiplier++;
         
-        // Trigger screen shake for big scores
+        // Trigger screen shake and effects for big scores
         if (scoreIncrease > 5) {
             scoreShake = Math.min(2, scoreIncrease / 10);
+            
+            // Screen flash with color
+            const avgColor = ringColors[Math.floor(Math.random() * gameState.maxColors)];
+            screenFlash = 0.4;
+            
+            // Screen zoom effect for huge combos
+            if (gameState.multiplier > 3) {
+                screenZoom = 1.05 + (gameState.multiplier - 3) * 0.01;
+            }
         }
         
         // Play sounds
@@ -1357,6 +1729,18 @@ function updateAnimations() {
             
             ctx.shadowBlur = 0;
             ctx.restore();
+        } else if (anim.type === 'spawn-scale') {
+            // Scale animation for spawn entries
+            const scale = easeOutElastic(progress);
+            const pegX = pegs[anim.pegIdx].x;
+            const pegY = pegs[anim.pegIdx].y;
+            
+            // Store scale for drawRings to use
+            anim.scale = scale;
+        } else if (anim.type === 'bounce') {
+            // Bounce animation when placing rings
+            const bounceAmount = Math.sin(progress * Math.PI) * 10;
+            anim.bounceY = -bounceAmount;
         }
     });
     
@@ -1472,11 +1856,22 @@ canvas.addEventListener('mouseup', (e) => {
                     for (let j = 0; j < 3; j++) {
                         if (dragSet[j] >= 0) {
                             pegs[i].rings[j] = dragSet[j];
+                            
+                            // Add ripple effect for each placed ring
+                            addRipple(pegs[i].x, pegs[i].y, dragSet[j]);
                         }
                     }
                     pegs[mouse.dragging].rings = [...emptySet];
                     
                     if (sounds.woodblock) playSound(sounds.woodblock);
+                    
+                    // Add bounce animation for placed rings
+                    animations.push({
+                        type: 'bounce',
+                        pegIdx: i,
+                        startTime: Date.now(),
+                        duration: 300
+                    });
                     
                     // Check for matches
                     checkMatches(i);
@@ -1622,8 +2017,8 @@ function drawSettingsModal() {
         settingsModalAlpha = Math.max(0, settingsModalAlpha - 0.1);
     }
     
-    // Semi-transparent overlay
-    ctx.fillStyle = `rgba(0, 0, 0, ${0.7 * settingsModalAlpha})`;
+    // Semi-transparent overlay with blur effect
+    ctx.fillStyle = `rgba(0, 0, 0, ${0.6 * settingsModalAlpha})`;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
     // Modal dimensions
@@ -1632,25 +2027,41 @@ function drawSettingsModal() {
     const modalX = (canvas.width - modalWidth) / 2;
     const modalY = (canvas.height - modalHeight) / 2;
     
-    // Modal background with gradient
-    const gradient = ctx.createLinearGradient(modalX, modalY, modalX, modalY + modalHeight);
-    gradient.addColorStop(0, `rgba(30, 30, 50, ${settingsModalAlpha})`);
-    gradient.addColorStop(1, `rgba(20, 20, 35, ${settingsModalAlpha})`);
+    // Glassmorphism effect
+    ctx.save();
     
-    ctx.shadowBlur = 40 * settingsModalAlpha;
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+    // Modal background with frosted glass effect
     roundRect(ctx, modalX, modalY, modalWidth, modalHeight, 20);
-    ctx.fillStyle = gradient;
-    ctx.fill();
-    ctx.shadowBlur = 0;
     
-    // Modal border with glow
-    ctx.strokeStyle = `rgba(100, 150, 255, ${0.5 * settingsModalAlpha})`;
+    // Multiple layers for glass effect
+    const glassGradient = ctx.createLinearGradient(modalX, modalY, modalX, modalY + modalHeight);
+    glassGradient.addColorStop(0, `rgba(255, 255, 255, ${0.15 * settingsModalAlpha})`);
+    glassGradient.addColorStop(0.5, `rgba(255, 255, 255, ${0.08 * settingsModalAlpha})`);
+    glassGradient.addColorStop(1, `rgba(255, 255, 255, ${0.05 * settingsModalAlpha})`);
+    ctx.fillStyle = glassGradient;
+    ctx.fill();
+    
+    // Inner shadow for depth
+    ctx.shadowBlur = 30 * settingsModalAlpha;
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+    ctx.shadowOffsetY = 10;
+    roundRect(ctx, modalX, modalY, modalWidth, modalHeight, 20);
+    ctx.strokeStyle = `rgba(100, 150, 255, ${0.3 * settingsModalAlpha})`;
     ctx.lineWidth = 2;
-    ctx.shadowBlur = 10 * settingsModalAlpha;
-    ctx.shadowColor = `rgba(100, 150, 255, ${settingsModalAlpha})`;
     ctx.stroke();
     ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    
+    // Outer glow
+    ctx.shadowBlur = 40 * settingsModalAlpha;
+    ctx.shadowColor = `rgba(100, 150, 255, ${0.4 * settingsModalAlpha})`;
+    roundRect(ctx, modalX, modalY, modalWidth, modalHeight, 20);
+    ctx.strokeStyle = `rgba(150, 200, 255, ${0.6 * settingsModalAlpha})`;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    
+    ctx.restore();
     
     // Title
     ctx.font = 'bold 36px Arial';
@@ -1826,23 +2237,43 @@ function drawConfirmModal() {
     const modalX = (canvas.width - modalWidth) / 2;
     const modalY = (canvas.height - modalHeight) / 2;
     
-    // Modal background with gradient
-    const gradient = ctx.createLinearGradient(modalX, modalY, modalX, modalY + modalHeight);
-    gradient.addColorStop(0, `rgba(40, 40, 60, ${confirmModalAlpha})`);
-    gradient.addColorStop(1, `rgba(30, 30, 45, ${confirmModalAlpha})`);
-    
+    // Glassmorphism background with frosted glass layers
     ctx.shadowBlur = 40 * confirmModalAlpha;
     ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+    
+    // Layer 1: Backdrop blur simulation (lighter)
+    const gradient1 = ctx.createLinearGradient(modalX, modalY, modalX, modalY + modalHeight);
+    gradient1.addColorStop(0, `rgba(255, 255, 255, ${0.15 * confirmModalAlpha})`);
+    gradient1.addColorStop(1, `rgba(255, 255, 255, ${0.05 * confirmModalAlpha})`);
     roundRect(ctx, modalX, modalY, modalWidth, modalHeight, 20);
-    ctx.fillStyle = gradient;
+    ctx.fillStyle = gradient1;
     ctx.fill();
+    
+    // Layer 2: Frosted glass effect
+    const gradient2 = ctx.createLinearGradient(modalX, modalY, modalX, modalY + modalHeight);
+    gradient2.addColorStop(0, `rgba(255, 255, 255, ${0.08 * confirmModalAlpha})`);
+    gradient2.addColorStop(1, `rgba(255, 255, 255, ${0.03 * confirmModalAlpha})`);
+    roundRect(ctx, modalX, modalY, modalWidth, modalHeight, 20);
+    ctx.fillStyle = gradient2;
+    ctx.fill();
+    
+    // Layer 3: Subtle highlight
+    const gradient3 = ctx.createLinearGradient(modalX, modalY, modalX + modalWidth, modalY);
+    gradient3.addColorStop(0, `rgba(255, 255, 255, ${0.05 * confirmModalAlpha})`);
+    gradient3.addColorStop(0.5, `rgba(255, 255, 255, ${0.02 * confirmModalAlpha})`);
+    gradient3.addColorStop(1, `rgba(255, 255, 255, ${0.05 * confirmModalAlpha})`);
+    roundRect(ctx, modalX, modalY, modalWidth, modalHeight, 20);
+    ctx.fillStyle = gradient3;
+    ctx.fill();
+    
     ctx.shadowBlur = 0;
     
-    // Modal border
-    ctx.strokeStyle = `rgba(255, 200, 100, ${0.6 * confirmModalAlpha})`;
+    // Glass reflection border
+    ctx.strokeStyle = `rgba(255, 255, 255, ${0.2 * confirmModalAlpha})`;
     ctx.lineWidth = 2;
     ctx.shadowBlur = 10 * confirmModalAlpha;
     ctx.shadowColor = `rgba(255, 200, 100, ${confirmModalAlpha})`;
+    roundRect(ctx, modalX, modalY, modalWidth, modalHeight, 20);
     ctx.stroke();
     ctx.shadowBlur = 0;
     
@@ -1994,23 +2425,43 @@ function drawGameOverModal() {
     const modalX = (canvas.width - modalWidth) / 2;
     const modalY = (canvas.height - modalHeight) / 2;
     
-    // Modal background with gradient
-    const gradient = ctx.createLinearGradient(modalX, modalY, modalX, modalY + modalHeight);
-    gradient.addColorStop(0, `rgba(40, 20, 50, ${gameOverModalAlpha})`);
-    gradient.addColorStop(1, `rgba(20, 10, 30, ${gameOverModalAlpha})`);
-    
+    // Glassmorphism background with frosted glass layers
     ctx.shadowBlur = 40 * gameOverModalAlpha;
     ctx.shadowColor = 'rgba(255, 0, 100, 0.5)';
+    
+    // Layer 1: Backdrop blur simulation (lighter)
+    const gradient1 = ctx.createLinearGradient(modalX, modalY, modalX, modalY + modalHeight);
+    gradient1.addColorStop(0, `rgba(255, 255, 255, ${0.15 * gameOverModalAlpha})`);
+    gradient1.addColorStop(1, `rgba(255, 255, 255, ${0.05 * gameOverModalAlpha})`);
     roundRect(ctx, modalX, modalY, modalWidth, modalHeight, 20);
-    ctx.fillStyle = gradient;
+    ctx.fillStyle = gradient1;
     ctx.fill();
+    
+    // Layer 2: Frosted glass effect
+    const gradient2 = ctx.createLinearGradient(modalX, modalY, modalX, modalY + modalHeight);
+    gradient2.addColorStop(0, `rgba(255, 255, 255, ${0.08 * gameOverModalAlpha})`);
+    gradient2.addColorStop(1, `rgba(255, 255, 255, ${0.03 * gameOverModalAlpha})`);
+    roundRect(ctx, modalX, modalY, modalWidth, modalHeight, 20);
+    ctx.fillStyle = gradient2;
+    ctx.fill();
+    
+    // Layer 3: Subtle highlight
+    const gradient3 = ctx.createLinearGradient(modalX, modalY, modalX + modalWidth, modalY);
+    gradient3.addColorStop(0, `rgba(255, 255, 255, ${0.05 * gameOverModalAlpha})`);
+    gradient3.addColorStop(0.5, `rgba(255, 255, 255, ${0.02 * gameOverModalAlpha})`);
+    gradient3.addColorStop(1, `rgba(255, 255, 255, ${0.05 * gameOverModalAlpha})`);
+    roundRect(ctx, modalX, modalY, modalWidth, modalHeight, 20);
+    ctx.fillStyle = gradient3;
+    ctx.fill();
+    
     ctx.shadowBlur = 0;
     
-    // Modal border
+    // Glass reflection border
     ctx.strokeStyle = `rgba(255, 100, 150, ${0.6 * gameOverModalAlpha})`;
     ctx.lineWidth = 3;
     ctx.shadowBlur = 15 * gameOverModalAlpha;
     ctx.shadowColor = `rgba(255, 50, 100, ${gameOverModalAlpha})`;
+    roundRect(ctx, modalX, modalY, modalWidth, modalHeight, 20);
     ctx.stroke();
     ctx.shadowBlur = 0;
     
@@ -2437,6 +2888,10 @@ function initGame() {
     if (!pegs || pegs.length === 0) {
         loadSettings();
         loadHighScore();
+        
+        // Initialize visual effects
+        initBackgroundStars();
+        initAmbientParticles();
     }
     
     initPegs();
@@ -2469,6 +2924,19 @@ function gameLoop() {
     if (showIntro) {
         updateIntro(dt);
     } else {
+        // Update effects
+        if (screenFlash > 0) screenFlash -= dt * 2;
+        if (screenZoom > 1) screenZoom = lerp(screenZoom, 1, dt * 5);
+        vignettePulse = Math.sin(Date.now() / 2000) * 0.5 + 0.5;
+        
+        // Apply zoom transform
+        ctx.save();
+        if (screenZoom !== 1) {
+            ctx.translate(canvas.width / 2, canvas.height / 2);
+            ctx.scale(screenZoom, screenZoom);
+            ctx.translate(-canvas.width / 2, -canvas.height / 2);
+        }
+        
         // Update
         if (!gameState.pauseGame && !showSettingsModal) {
             updateScore(dt);
@@ -2487,10 +2955,23 @@ function gameLoop() {
         drawBackground();
         drawBoardDivisions();
         drawPegs();
+        drawDragTrails();
         drawHoverHighlight();
         drawRings();
+        drawRipples();
         updateAnimations();
         drawHUD();
+        
+        // Screen flash effect
+        if (screenFlash > 0) {
+            ctx.globalAlpha = screenFlash;
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.globalAlpha = 1;
+        }
+        
+        // Restore zoom transform
+        ctx.restore();
         
         // Draw pause overlay if paused
         if (gameState.pauseGame) {
