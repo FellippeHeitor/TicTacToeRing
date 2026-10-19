@@ -18,7 +18,11 @@ CONST MODE_EASIER = 1
 
 CONST GAME_OVER_GLOW = .8 'glow phase (with electric buzz)
 CONST GAME_OVER_TREMBLE = .5 'tremble phase
-CONST GAME_OVER_EXPLOSION = .3 'explosion phase
+CONST GAME_OVER_EXPLOSION = 1 'explosion phase, while the board rings cascade out
+CONST LAND_TIME = .12 'dropped rings flying onto their peg
+CONST DYING_TIME = .3 'matched rings swelling and fading out
+CONST BEAM_TIME = .5 'line match beam
+CONST SPAWN_STAGGER = .08 'delay between new sets popping in
 CONST GAME_OVER_NO_MOVES = 1
 CONST GAME_OVER_QUIT = 2
 CONST TUTORIAL_DELAY = 5 'show tutorial after 5 seconds of inactivity
@@ -112,6 +116,25 @@ TYPE rippleType
     state AS _BYTE
 END TYPE
 
+TYPE dyingType
+    x AS SINGLE
+    y AS SINGLE
+    slot AS INTEGER
+    colr AS INTEGER
+    start AS DOUBLE
+    state AS _BYTE
+END TYPE
+
+TYPE beamType
+    x1 AS SINGLE
+    y1 AS SINGLE
+    x2 AS SINGLE
+    y2 AS SINGLE
+    c AS _UNSIGNED LONG
+    start AS DOUBLE
+    state AS _BYTE
+END TYPE
+
 TYPE sparkleType
     x AS SINGLE
     y AS SINGLE
@@ -183,11 +206,22 @@ DIM SHARED dragging AS INTEGER, mouseDown AS _BYTE
 DIM SHARED returnAnim(10 TO 12) AS object
 DIM SHARED showTutorial AS _BYTE, tutorialTime AS SINGLE
 DIM SHARED screenFlash AS SINGLE, screenZoom AS SINGLE, scoreShake AS SINGLE, frameDt AS SINGLE
+DIM SHARED frameStep AS SINGLE 'frameDt measured in 60fps frames, for per-frame motion
+DIM SHARED zoomX AS SINGLE, zoomY AS SINGLE 'screen zoom focus point
+DIM SHARED scorePop AS SINGLE, scorePopV AS SINGLE 'score panel spring
+DIM SHARED comboLost AS INTEGER, comboLostStart AS DOUBLE
+DIM SHARED pauseFade AS SINGLE, tutorialFade AS SINGLE, buttonHover(100) AS SINGLE
+
+'ring handling
+DIM SHARED dragX AS SINGLE, dragY AS SINGLE, dragLift AS SINGLE, ringLift AS SINGLE
+DIM SHARED landing AS object 'set flying from the cursor to its peg; .text = target peg
+DIM SHARED pegPop(1 TO 9) AS DOUBLE
 
 'visual effects
 DIM SHARED particle(5000) AS particleType
 DIM SHARED star(1 TO 150) AS starType, ambient(1 TO 30) AS ambientType
 DIM SHARED ripple(1 TO 40) AS rippleType, sparkle(1 TO 60) AS sparkleType
+DIM SHARED dying(1 TO 48) AS dyingType, beam(1 TO 12) AS beamType
 
 'electric connections between rings that would match
 DIM SHARED match(1 TO MAX_MATCHES) AS matchType, matchCount AS INTEGER
@@ -260,14 +294,13 @@ RANDOMIZE TIMER
 
 'game
 animation(0).duration = .25 'board flash
-FOR i = 1 TO 5
-    animation(i).duration = .5 'matches
-NEXT
 animation(6).duration = 1 'new set spawn
 animation(7).duration = 1.5 'combo info
 
 multiplier = 1
 screenZoom = 1
+zoomX = _WIDTH / 2
+zoomY = _HEIGHT / 2
 
 visibleScore = score
 visibleHighScore = highscore
@@ -275,7 +308,7 @@ _DEST _DISPLAY
 
 DIM highScore(maxHighScores) AS newHighScore
 DIM totalHS AS INTEGER
-DIM board$, filename$, prevbt AS INTEGER, lastFrame AS DOUBLE, currentMode AS INTEGER
+DIM board$, filename$, prevbt AS INTEGER, currentMode AS INTEGER
 
 DO
     'read highscores
@@ -308,7 +341,6 @@ DO
     dragging = 0
     mouseDown = false
     gameOverDone = false
-    lastFrame = clock
 
     DO 'main game loop
         'read mouse data
@@ -316,10 +348,6 @@ DO
 
         'read keyboard
         keyb = _KEYHIT
-
-        frameDt = clock - lastFrame
-        lastFrame = clock
-        IF frameDt <= 0 OR frameDt > .25 THEN frameDt = 1 / 60
 
         IF mainTrackVolume > .5 THEN
             mainTrackVolume = mainTrackVolume - .05
@@ -361,10 +389,13 @@ DO
             IF _MOUSEBUTTON(1) THEN
                 IF NOT mouseDown THEN
                     'are we beginning to drag a ring or set of rings?
+                    finishLanding 'a previous drop must settle before the board changes again
                     dragging = 0
                     FOR i = 10 TO 12
                         IF dist(peg(i).x, peg(i).y, _MOUSEX, _MOUSEY) <= 40 AND peg(i).set <> emptySet$ THEN
                             dragging = i
+                            dragX = peg(i).x
+                            dragY = peg(i).y
                             returnAnim(i).state = false
                             showTutorial = false
                             tutorialTime = 0
@@ -397,11 +428,22 @@ DO
 
         IF keyb = ASC("q") AND _KEYDOWN(100306) AND gameOver = false THEN startGameOver GAME_OVER_QUIT
 
+        'dragged rings trail the cursor and lift off the board
+        IF dragging > 0 THEN
+            dragX = dragX + (_MOUSEX - dragX) * (1 - .65 ^ frameStep)
+            dragY = dragY + (_MOUSEY - dragY) * (1 - .65 ^ frameStep)
+            dragLift = clampf(dragLift + frameDt * 8, 0, 1)
+        ELSE
+            dragLift = 0
+        END IF
+        IF landing.state AND clock - landing.start >= landing.duration THEN finishLanding
+
         updateElectric
         IF gameOver = false AND pauseGame = false THEN generateSparkles
 
         drawElectricConnections
         updateSparkles
+        updateBeams
         drawRings
         drawGameOverEffects
         updateRipples
@@ -416,7 +458,8 @@ DO
 
         applyScreenZoom
 
-        IF pauseGame THEN drawPauseOverlay
+        IF pauseGame THEN pauseFade = clampf(pauseFade + frameDt * 6, 0, 1) ELSE pauseFade = clampf(pauseFade - frameDt * 6, 0, 1)
+        IF pauseFade > 0 THEN drawPauseOverlay pauseFade
 
         'update display
         _DISPLAY
@@ -437,7 +480,7 @@ DO
             END IF
 
             'no more moves? wait for the score to finish counting first
-            IF gameOver = false AND dragging = 0 THEN
+            IF gameOver = false AND dragging = 0 AND landing.state = false THEN
                 IF movesAvailable = false AND ABS(visibleScore - score) < 1 AND scoreFlying = false THEN
                     startGameOver GAME_OVER_NO_MOVES
                 END IF
@@ -471,6 +514,7 @@ DO
         IF keyb = -27 AND gameOver = false THEN EXIT DO
     LOOP UNTIL gameOverDone OR userQuit
 
+    finishLanding
     stopElectricNow
     dragging = 0
     saveGame
@@ -792,9 +836,24 @@ SUB disturbParticles (x AS SINGLE, y AS SINGLE, force AS SINGLE, radius AS SINGL
     NEXT
 END SUB
 
-SUB drawBackground
-    DIM t AS DOUBLE, i AS INTEGER, a AS SINGLE, hue1 AS SINGLE, hue2 AS SINGLE
+SUB updateFrameTime
+    'seconds since the previous frame; long gaps (loading, screen changes) count as one frame
+    STATIC lastFrame AS DOUBLE
 
+    frameDt = clock - lastFrame
+    lastFrame = clock
+    IF frameDt <= 0 OR frameDt > .25 THEN frameDt = 1 / 60
+    frameStep = frameDt * 60
+END SUB
+
+SUB drawBackground
+    'every screen draws the background first, so this also starts the frame
+    DIM t AS DOUBLE, i AS INTEGER, a AS SINGLE, hue1 AS SINGLE, hue2 AS SINGLE
+    DIM starDrag AS SINGLE, ambientDrag AS SINGLE
+
+    updateFrameTime
+    starDrag = .92 ^ frameStep
+    ambientDrag = .95 ^ frameStep
     t = clock
     _DONTBLEND
     _PUTIMAGE (0, 0), bg
@@ -807,10 +866,10 @@ SUB drawBackground
 
     'falling stars
     FOR i = 1 TO UBOUND(star)
-        star(i).y = star(i).y + star(i).speed + star(i).yv
-        star(i).x = star(i).x + star(i).xv
-        star(i).xv = star(i).xv * .92
-        star(i).yv = star(i).yv * .92
+        star(i).y = star(i).y + (star(i).speed + star(i).yv) * frameStep
+        star(i).x = star(i).x + star(i).xv * frameStep
+        star(i).xv = star(i).xv * starDrag
+        star(i).yv = star(i).yv * starDrag
 
         IF star(i).y > _HEIGHT THEN
             star(i).y = 0
@@ -827,11 +886,11 @@ SUB drawBackground
 
     'ambient particles
     FOR i = 1 TO UBOUND(ambient)
-        ambient(i).x = ambient(i).x + ambient(i).xv
-        ambient(i).y = ambient(i).y + ambient(i).yv
-        ambient(i).life = ambient(i).life + .01
-        ambient(i).xv = ambient(i).xv * .95
-        ambient(i).yv = ambient(i).yv * .95
+        ambient(i).x = ambient(i).x + ambient(i).xv * frameStep
+        ambient(i).y = ambient(i).y + ambient(i).yv * frameStep
+        ambient(i).life = ambient(i).life + .01 * frameStep
+        ambient(i).xv = ambient(i).xv * ambientDrag
+        ambient(i).yv = ambient(i).yv * ambientDrag
 
         IF ambient(i).x < 0 THEN ambient(i).x = _WIDTH
         IF ambient(i).x > _WIDTH THEN ambient(i).x = 0
@@ -927,8 +986,8 @@ SUB doIntro
 
         FOR i = 1 TO UBOUND(introRings)
             IF banged THEN
-                introRings(i).xa = introRings(i).xa + .01
-                introRings(i).size = introRings(i).size + introRings(i).xv
+                introRings(i).xa = introRings(i).xa + .01 * frameStep
+                introRings(i).size = introRings(i).size + introRings(i).xv * frameStep
             END IF
             px(i) = _WIDTH / 2 + COS(introRings(i).xa) * introRings(i).size
             py(i) = _HEIGHT / 2 + SIN(introRings(i).xa) * introRings(i).size
@@ -956,9 +1015,9 @@ SUB doIntro
         FOR i = 1 TO UBOUND(introRings)
             IF banged = false THEN EXIT FOR
             IF connected(i) THEN
-                drawRingAt px(i), py(i), introRings(i).w, introRings(i).text, glowI, true
+                drawRingAt px(i), py(i), introRings(i).w, introRings(i).text, glowI, true, 1
             ELSE
-                drawRingAt px(i), py(i), introRings(i).w, introRings(i).text, 0, true
+                drawRingAt px(i), py(i), introRings(i).w, introRings(i).text, 0, true, 1
             END IF
         NEXT
 
@@ -991,7 +1050,7 @@ SUB generateNewSets
     DIM i AS INTEGER
     DIM j AS INTEGER
 
-    IF gameOver THEN EXIT SUB
+    IF gameOver OR landing.state THEN EXIT SUB 'wait for dropped rings to settle on the board
 
     'new sets must be generated according to
     'current board's available positions
@@ -1046,7 +1105,13 @@ SUB generateNewSets
                 MID$(peg(i).set, j * 2 - 1, 2) = MKI$(-1)
             END IF
         NEXT
+
+        'sets pop into the spawn area one after the other (see drawRings)
         animation(6).start = clock
+        FOR i = 10 TO 12
+            addShockwave peg(i).x, peg(i).y, 4, .04, _RGB32(150, 200, 255), (i - 10) * SPAWN_STAGGER + .15
+            addSparkBurst peg(i).x, peg(i).y, 18, .3, _RGB32(255), (i - 10) * SPAWN_STAGGER + .15
+        NEXT
     END IF
 END SUB
 
@@ -1071,25 +1136,44 @@ SUB placeRings
     END IF
 
     IF placed THEN
-        playSfx woodblock, 1
-        FOR j = 1 TO 3
-            IF slotColor(peg(dragging).set, j) > 0 THEN
-                MID$(peg(target).set, j * 2 - 1, 2) = MID$(peg(dragging).set, j * 2 - 1, 2)
-                addRipple peg(target).x, peg(target).y, slotColor(peg(dragging).set, j)
-            END IF
-        NEXT
+        'rings fly onto the peg first; finishLanding places them
+        landing.state = true
+        landing.x = dragX
+        landing.y = dragY
+        landing.set = peg(dragging).set
+        landing.text = target
+        landing.start = clock
+        landing.duration = LAND_TIME
         peg(dragging).set = emptySet$
-        disturbParticles peg(target).x, peg(target).y, .5, 150
         stopElectricNow
-        checkMatches target
     ELSE
         'misplaced rings bounce back to the spawn area
         returnAnim(dragging).state = true
-        returnAnim(dragging).x = _MOUSEX
-        returnAnim(dragging).y = _MOUSEY
+        returnAnim(dragging).x = dragX
+        returnAnim(dragging).y = dragY
         returnAnim(dragging).start = clock
         returnAnim(dragging).duration = .4
     END IF
+END SUB
+
+SUB finishLanding
+    'dropped rings reach their peg: place them and look for matches
+    DIM j AS INTEGER, target AS INTEGER
+
+    IF landing.state = false THEN EXIT SUB
+    landing.state = false
+    target = landing.text
+
+    playSfx woodblock, 1
+    FOR j = 1 TO 3
+        IF slotColor(landing.set, j) > 0 THEN
+            MID$(peg(target).set, j * 2 - 1, 2) = MID$(landing.set, j * 2 - 1, 2)
+            addRipple peg(target).x, peg(target).y, slotColor(landing.set, j)
+        END IF
+    NEXT
+    pegPop(target) = clock
+    disturbParticles peg(target).x, peg(target).y, .5, 150
+    checkMatches target
 END SUB
 
 SUB checkMatches (target AS INTEGER)
@@ -1113,18 +1197,17 @@ SUB checkMatches (target AS INTEGER)
     IF r(1) > 0 AND r(1) = r(2) AND r(2) = r(3) THEN
         score = score + 3 * multiplier
         animation(0).start = clock
-        animation(5).start = clock
-        animation(5).x = peg(target).x
-        animation(5).y = peg(target).y
-        animation(5).r = _RED32(ringColor(r(1)))
-        animation(5).g = _GREEN32(ringColor(r(1)))
-        animation(5).b = _BLUE32(ringColor(r(1)))
         animation(8).r = _RED32(ringColor(r(1)))
         animation(8).g = _GREEN32(ringColor(r(1)))
         animation(8).b = _BLUE32(ringColor(r(1)))
         del(target).set = emptySet$
-        addParticles peg(target).x, peg(target).y, 70, ringColor(r(1))
-        addParticles peg(target).x, peg(target).y, 30, lighter(ringColor(r(1)), 30)
+        FOR j = 1 TO 3
+            addDyingRing peg(target).x, peg(target).y, j, r(1), (3 - j) * .04 'inner ring goes first
+        NEXT
+        addShockwave peg(target).x, peg(target).y, 9, .03, ringColor(r(1)), 0
+        addShockwave peg(target).x, peg(target).y, 6, .035, _RGB32(255), .06
+        addSparkBurst peg(target).x, peg(target).y, 70, .55, ringColor(r(1)), 0
+        addSparkBurst peg(target).x, peg(target).y, 30, .55, _RGB32(255), 0
         disturbParticles peg(target).x, peg(target).y, 2, 250
         totalMatches = totalMatches + 1
     END IF
@@ -1167,28 +1250,26 @@ SUB checkMatches (target AS INTEGER)
                 found1 = INSTR(peg(r(i) + nextPeg(1)).set, s$)
                 found2 = INSTR(peg(r(i) + nextPeg(2)).set, s$)
                 IF found1 > 0 AND found2 > 0 THEN
-                    'match! clear all rings of the same color in this group of pegs
+                    'match! clear all rings of the same color in this group of pegs,
+                    'one peg after the other, following the beam
+                    addBeam peg(r(i)).x, peg(r(i)).y, peg(r(i) + nextPeg(2)).x, peg(r(i) + nextPeg(2)).y, ringColor(CVI(s$))
                     FOR k = 0 TO 2
                         p = r(i) + nextPeg(k)
                         found1 = INSTR(del(p).set, s$)
                         DO WHILE found1
                             MID$(del(p).set, found1, 2) = MKI$(-1)
-                            addParticles del(p).x, del(p).y, 23, ringColor(CVI(s$))
-                            addParticles del(p).x, del(p).y, 10, lighter(ringColor(CVI(s$)), 30)
+                            addDyingRing peg(p).x, peg(p).y, (found1 + 1) \ 2, CVI(s$), k * .06
+                            addSparkBurst peg(p).x, peg(p).y, 23, .45, ringColor(CVI(s$)), k * .06
+                            addSparkBurst peg(p).x, peg(p).y, 10, .45, _RGB32(255), k * .06
                             score = score + multiplier
                             found1 = INSTR(del(p).set, s$)
                         LOOP
+                        addShockwave peg(p).x, peg(p).y, 7, .035, ringColor(CVI(s$)), k * .06
                         disturbParticles peg(p).x, peg(p).y, 2.5, 300
                     NEXT
                     scored = true
                     totalMatches = totalMatches + 1
                     animation(0).start = clock
-                    animation(m).start = clock
-                    animation(m).x = peg(r(i)).x
-                    animation(m).y = peg(r(i)).y
-                    animation(m).r = _RED32(ringColor(CVI(s$)))
-                    animation(m).g = _GREEN32(ringColor(CVI(s$)))
-                    animation(m).b = _BLUE32(ringColor(CVI(s$)))
                     animation(8).r = _RED32(ringColor(CVI(s$)))
                     animation(8).g = _GREEN32(ringColor(CVI(s$)))
                     animation(8).b = _BLUE32(ringColor(CVI(s$)))
@@ -1211,7 +1292,11 @@ SUB checkMatches (target AS INTEGER)
             scoreShake = increase / 10
             IF scoreShake > 2 THEN scoreShake = 2
             screenFlash = .4
-            IF multiplier > 3 THEN screenZoom = 1.05 + (multiplier - 3) * .01
+            IF multiplier > 3 THEN
+                screenZoom = 1.05 + (multiplier - 3) * .01
+                zoomX = peg(target).x
+                zoomY = peg(target).y
+            END IF
         END IF
 
         playSfx wooshSound, .5
@@ -1228,15 +1313,19 @@ SUB checkMatches (target AS INTEGER)
         m$(2) = LTRIM$(STR$(multiplier)) + "x combo!"
         animation(7).start = clock
         animation(8).start = clock
-        animation(8).x = _MOUSEX
-        animation(8).y = _MOUSEY
+        animation(8).x = peg(target).x 'flight origin
+        animation(8).y = peg(target).y - 30
         animation(8).xa = increase
-        animation(8).ya = dist(_MOUSEX, _MOUSEY, scoreTargetX, scoreTargetY)
-        IF animation(8).ya < 1 THEN animation(8).ya = 1
+        animation(8).size = .75 'flight time
         animation(8).duration = 5
 
         addComboBurst _WIDTH / 2, _HEIGHT / 2, 30 + multiplier * 10
     ELSE
+        IF multiplier > 1 THEN
+            'combo broken: its label falls off the HUD
+            comboLost = multiplier
+            comboLostStart = clock
+        END IF
         multiplier = 1
     END IF
     IF score > highscore THEN highscore = score
@@ -1266,6 +1355,7 @@ FUNCTION movesAvailable%
 END FUNCTION
 
 SUB startGameOver (reason AS INTEGER)
+    finishLanding
     gameOver = true
     gameOverReason = reason
     gameOverStart = clock
@@ -1282,7 +1372,7 @@ SUB startGameOver (reason AS INTEGER)
 END SUB
 
 SUB explodeSpawnedRings
-    DIM i AS INTEGER, j AS INTEGER, colr AS INTEGER, first AS INTEGER
+    DIM i AS INTEGER, j AS INTEGER, colr AS INTEGER, first AS INTEGER, delay AS SINGLE
 
     exploded = true
     FOR i = 10 TO 12
@@ -1292,15 +1382,31 @@ SUB explodeSpawnedRings
                 colr = slotColor(peg(i).set, j)
                 IF colr > 0 THEN
                     IF first = 0 THEN first = colr
-                    addParticles peg(i).x, peg(i).y, 150, ringColor(colr)
-                    addParticles peg(i).x, peg(i).y, 80, lighter(ringColor(colr), 30)
+                    addSparkBurst peg(i).x, peg(i).y, 120, .8, ringColor(colr), 0
                 END IF
             NEXT
-            addParticles peg(i).x, peg(i).y, 100, _RGB32(255)
-            addRipple peg(i).x, peg(i).y, first
+            addSparkBurst peg(i).x, peg(i).y, 60, .8, _RGB32(255), 0
+            addShockwave peg(i).x, peg(i).y, 12, .025, ringColor(first), 0
+            addShockwave peg(i).x, peg(i).y, 8, .03, _RGB32(255), .06
             disturbParticles peg(i).x, peg(i).y, 3, 250
             peg(i).set = emptySet$
             returnAnim(i).state = false
+        END IF
+    NEXT
+
+    'the board follows, peg by peg from the center out
+    FOR i = 1 TO 9
+        IF peg(i).set <> emptySet$ THEN
+            delay = .15 + dist(peg(i).x, peg(i).y, peg(5).x, peg(5).y) / 700
+            FOR j = 1 TO 3
+                colr = slotColor(peg(i).set, j)
+                IF colr > 0 THEN
+                    addDyingRing peg(i).x, peg(i).y, j, colr, delay
+                    addSparkBurst peg(i).x, peg(i).y, 15, .4, ringColor(colr), delay
+                END IF
+            NEXT
+            addShockwave peg(i).x, peg(i).y, 5, .04, _RGB32(255), delay
+            peg(i).set = emptySet$
         END IF
     NEXT
 
@@ -1362,6 +1468,16 @@ SUB resetGame
     FOR i = 10 TO 12
         returnAnim(i).state = false
     NEXT
+    FOR i = 1 TO UBOUND(dying)
+        dying(i).state = false
+    NEXT
+    FOR i = 1 TO UBOUND(beam)
+        beam(i).state = false
+    NEXT
+    landing.state = false
+    comboLostStart = 0
+    scorePop = 0
+    scorePopV = 0
     matchCount = 0
     lastMatchCount = 0
     fadingOut = false
@@ -1370,17 +1486,28 @@ SUB resetGame
     pauseGame = false
 END SUB
 
-SUB drawRingAt (x AS SINGLE, y AS SINGLE, slot AS INTEGER, colr AS INTEGER, glow AS SINGLE, withShadow AS _BYTE)
-    DIM half AS INTEGER, outerR AS INTEGER, k AS INTEGER, n AS INTEGER
+SUB putScaled (img AS LONG, x AS SINGLE, y AS SINGLE, ox AS SINGLE, oy AS SINGLE, s AS SINGLE)
+    'draw img with its top-left corner at offset (ox, oy) from (x, y), scaled around (x, y)
+    IF s = 1 THEN
+        _PUTIMAGE (x + ox, y + oy), img
+    ELSE
+        _PUTIMAGE (x + ox * s, y + oy * s)-STEP(_WIDTH(img) * s - 1, _HEIGHT(img) * s - 1), img
+    END IF
+END SUB
+
+SUB drawRingAt (x AS SINGLE, y AS SINGLE, slot AS INTEGER, colr AS INTEGER, glow AS SINGLE, withShadow AS _BYTE, scale AS SINGLE)
+    'ringLift > 0 pushes the shadow away, for rings held above the board
+    DIM half AS INTEGER, outerR AS SINGLE, k AS INTEGER, n AS INTEGER
     DIM r AS INTEGER, g AS INTEGER, b AS INTEGER
 
-    outerR = slot * 14
-    half = outerR + 2
+    IF scale <= .02 THEN EXIT SUB
+    outerR = slot * 14 * scale
+    half = slot * 14 + 2
     r = _RED32(ringColor(colr))
     g = _GREEN32(ringColor(colr))
     b = _BLUE32(ringColor(colr))
 
-    IF withShadow THEN _PUTIMAGE (x - half - 4, y - half - 1), ringShadow(slot)
+    IF withShadow THEN putScaled ringShadow(slot), x + ringLift * 6, y + ringLift * 10, -half - 4, -half - 1, scale
 
     IF glow > 0 THEN
         'pulsing glow for rings being dragged or about to match
@@ -1389,7 +1516,7 @@ SUB drawRingAt (x AS SINGLE, y AS SINGLE, slot AS INTEGER, colr AS INTEGER, glow
         NEXT
         CIRCLE (x, y), outerR + 8 + glow * 12, _RGBA32(r, g, b, (.2 + glow * .2) * 255)
         CIRCLE (x, y), outerR + 9 + glow * 12, _RGBA32(r, g, b, (.2 + glow * .2) * 255)
-        _PUTIMAGE (x - half, y - half), circleGlow(colr, slot)
+        putScaled circleGlow(colr, slot), x, y, -half, -half, scale
     ELSE
         IF multiplier > 2 THEN
             'neon glow for high multipliers
@@ -1399,33 +1526,45 @@ SUB drawRingAt (x AS SINGLE, y AS SINGLE, slot AS INTEGER, colr AS INTEGER, glow
                 CIRCLE (x, y), outerR + k, _RGBA32(r, g, b, 90 * (1 - k / (n + 1)))
             NEXT
         END IF
-        _PUTIMAGE (x - half, y - half), circleImage(colr, slot)
+        putScaled circleImage(colr, slot), x, y, -half, -half, scale
     END IF
 END SUB
 
 SUB drawRings
     DIM i AS INTEGER, j AS INTEGER, colr AS INTEGER
     DIM x AS SINGLE, y AS SINGLE, p AS SINGLE, e AS SINGLE, t AS SINGLE
-    DIM glowI AS SINGLE, shake AS SINGLE
+    DIM glowI AS SINGLE, shake AS SINGLE, scale AS SINGLE, now AS DOUBLE
 
-    glowI = .5 + SIN(clock / .15) * .3
+    now = clock
+    glowI = .5 + SIN(now / .15) * .3
 
     IF gameOver AND exploded = false THEN
-        t = clock - gameOverStart
+        t = now - gameOverStart
         IF t >= GAME_OVER_GLOW THEN shake = (t - GAME_OVER_GLOW) / GAME_OVER_TREMBLE * 10
     END IF
 
     FOR i = 1 TO 12
+        IF i = dragging THEN _CONTINUE 'drawn last, above everything else
         IF i >= 10 THEN
             IF returnAnim(i).state THEN _CONTINUE
         END IF
 
-        IF i = dragging THEN
-            x = _MOUSEX
-            y = _MOUSEY
-        ELSE
-            x = peg(i).x
-            y = peg(i).y
+        x = peg(i).x
+        y = peg(i).y
+        scale = 1
+
+        IF i <= 9 THEN
+            'squash after rings land on this peg
+            p = (now - pegPop(i)) / .18
+            IF p >= 0 AND p < 1 THEN scale = 1 + .1 * SIN(p * _PI) * (1 - p * .5)
+        ELSEIF animation(6).start > 0 THEN
+            'new sets pop in one after the other, rising into place
+            p = (now - animation(6).start - (i - 10) * SPAWN_STAGGER) / .35
+            IF p < 0 THEN _CONTINUE
+            IF p < 1 THEN
+                scale = easeOutBack(p)
+                y = y + (1 - easeOutCubic(p)) * 60
+            END IF
         END IF
 
         IF shake > 0 AND i >= 10 THEN
@@ -1436,19 +1575,21 @@ SUB drawRings
         FOR j = 3 TO 1 STEP -1
             colr = slotColor(peg(i).set, j)
             IF colr > 0 THEN
-                IF i = dragging OR isMatching(i, j) THEN
-                    drawRingAt x, y, j, colr, glowI, (i <> dragging)
+                IF isMatching(i, j) THEN
+                    drawRingAt x, y, j, colr, glowI, true, scale
                 ELSE
-                    drawRingAt x, y, j, colr, 0, true
+                    drawRingAt x, y, j, colr, 0, true, scale
                 END IF
             END IF
         NEXT
     NEXT
 
+    drawDyingRings
+
     'rings bouncing back to the spawn area are drawn on top
     FOR i = 10 TO 12
         IF returnAnim(i).state THEN
-            p = (clock - returnAnim(i).start) / returnAnim(i).duration
+            p = (now - returnAnim(i).start) / returnAnim(i).duration
             IF p >= 1 THEN
                 returnAnim(i).state = false
                 p = 1
@@ -1456,10 +1597,136 @@ SUB drawRings
             e = easeOutCubic(p)
             x = returnAnim(i).x + (peg(i).x - returnAnim(i).x) * e
             y = returnAnim(i).y + (peg(i).y - returnAnim(i).y) * e
+            ringLift = 1 - e
             FOR j = 3 TO 1 STEP -1
                 colr = slotColor(peg(i).set, j)
-                IF colr > 0 THEN drawRingAt x, y, j, colr, 0, true
+                IF colr > 0 THEN drawRingAt x, y, j, colr, 0, true, 1 + .06 * (1 - e)
             NEXT
+            ringLift = 0
+        END IF
+    NEXT
+
+    'rings dropping onto their peg speed up as they fall in
+    IF landing.state THEN
+        p = clampf((now - landing.start) / landing.duration, 0, 1)
+        e = p * p
+        x = landing.x + (peg(landing.text).x - landing.x) * e
+        y = landing.y + (peg(landing.text).y - landing.y) * e
+        ringLift = 1 - e
+        FOR j = 3 TO 1 STEP -1
+            colr = slotColor(landing.set, j)
+            IF colr > 0 THEN drawRingAt x, y, j, colr, 0, true, 1 + .06 * (1 - e)
+        NEXT
+        ringLift = 0
+    END IF
+
+    'the dragged set floats above the board, trailing the cursor
+    IF dragging > 0 THEN
+        ringLift = dragLift
+        FOR j = 3 TO 1 STEP -1
+            colr = slotColor(peg(dragging).set, j)
+            IF colr > 0 THEN drawRingAt dragX, dragY, j, colr, glowI, true, 1 + .06 * dragLift
+        NEXT
+        ringLift = 0
+    END IF
+END SUB
+
+SUB addDyingRing (x AS SINGLE, y AS SINGLE, slot AS INTEGER, colr AS INTEGER, delay AS SINGLE)
+    'a ring that has already left the board, shown swelling and fading away
+    DIM i AS INTEGER
+    FOR i = 1 TO UBOUND(dying)
+        IF dying(i).state = false THEN
+            dying(i).state = true
+            dying(i).x = x
+            dying(i).y = y
+            dying(i).slot = slot
+            dying(i).colr = colr
+            dying(i).start = clock + delay
+            EXIT SUB
+        END IF
+    NEXT
+END SUB
+
+SUB drawDyingRings
+    DIM i AS INTEGER, k AS INTEGER, p AS SINGLE, s AS SINGLE, a AS SINGLE
+    DIM innerR AS SINGLE, outerR AS SINGLE, c AS _UNSIGNED LONG
+
+    FOR i = 1 TO UBOUND(dying)
+        IF dying(i).state THEN
+            p = (clock - dying(i).start) / DYING_TIME
+            IF p < 0 THEN
+                'waiting for its turn: still looks like a regular ring
+                drawRingAt dying(i).x, dying(i).y, dying(i).slot, dying(i).colr, 0, true, 1
+            ELSEIF p >= 1 THEN
+                dying(i).state = false
+            ELSE
+                s = 1 + .4 * easeOutCubic(p)
+                IF p < .2 THEN
+                    'brief bright flash before fading
+                    putScaled circleGlow(dying(i).colr, dying(i).slot), dying(i).x, dying(i).y, -(dying(i).slot * 14 + 2), -(dying(i).slot * 14 + 2), s
+                ELSE
+                    a = (1 - (p - .2) / .8) * 230
+                    c = lighter(ringColor(dying(i).colr), 60)
+                    outerR = dying(i).slot * 14 * s
+                    innerR = dying(i).slot * (8 + dying(i).slot) * s
+                    FOR k = innerR TO outerR
+                        CIRCLE (dying(i).x, dying(i).y), k, _RGBA32(_RED32(c), _GREEN32(c), _BLUE32(c), a)
+                    NEXT
+                    CIRCLE (dying(i).x, dying(i).y), outerR + 1, _RGBA32(255, 255, 255, a * .5)
+                END IF
+            END IF
+        END IF
+    NEXT
+END SUB
+
+SUB addBeam (x1 AS SINGLE, y1 AS SINGLE, x2 AS SINGLE, y2 AS SINGLE, c AS _UNSIGNED LONG)
+    DIM i AS INTEGER
+    FOR i = 1 TO UBOUND(beam)
+        IF beam(i).state = false THEN
+            beam(i).state = true
+            beam(i).x1 = x1
+            beam(i).y1 = y1
+            beam(i).x2 = x2
+            beam(i).y2 = y2
+            beam(i).c = c
+            beam(i).start = clock
+            EXIT SUB
+        END IF
+    NEXT
+END SUB
+
+SUB updateBeams
+    'line matches: a beam sweeps through the matched pegs, then thins out
+    DIM i AS INTEGER, p AS SINGLE, head AS SINGLE, fade AS SINGLE, w AS SINGLE, d AS SINGLE
+    DIM ux AS SINGLE, uy AS SINGLE, sx AS SINGLE, sy AS SINGLE, ex AS SINGLE, ey AS SINGLE
+    DIM hx AS SINGLE, hy AS SINGLE, r AS INTEGER, g AS INTEGER, b AS INTEGER
+
+    FOR i = 1 TO UBOUND(beam)
+        IF beam(i).state THEN
+            p = (clock - beam(i).start) / BEAM_TIME
+            IF p >= 1 THEN
+                beam(i).state = false
+            ELSE
+                d = dist(beam(i).x1, beam(i).y1, beam(i).x2, beam(i).y2)
+                IF d < 1 THEN d = 1
+                ux = (beam(i).x2 - beam(i).x1) / d
+                uy = (beam(i).y2 - beam(i).y1) / d
+                sx = beam(i).x1 - ux * 60: sy = beam(i).y1 - uy * 60
+                ex = beam(i).x2 + ux * 60: ey = beam(i).y2 + uy * 60
+
+                head = easeOutCubic(clampf(p / .3, 0, 1))
+                hx = sx + (ex - sx) * head
+                hy = sy + (ey - sy) * head
+                fade = 1 - clampf((p - .3) / .7, 0, 1)
+                w = 3 + 11 * fade
+                r = _RED32(beam(i).c): g = _GREEN32(beam(i).c): b = _BLUE32(beam(i).c)
+
+                thickLine sx, sy, hx, hy, w + 14, _RGBA32(r, g, b, fade * 45)
+                thickLine sx, sy, hx, hy, w, _RGBA32(r, g, b, fade * 170)
+                thickLine sx, sy, hx, hy, w / 3 + 1, _RGBA32(255, 255, 255, fade * 230)
+                drawBolt sx, sy, hx, hy, 10, 20, 1.5, fade * .6
+                IF p < .3 THEN CircleFill hx, hy, 6 + 6 * (1 - p / .3), _RGBA32(255, 255, 255, 200)
+            END IF
         END IF
     NEXT
 END SUB
@@ -1626,8 +1893,8 @@ SUB getMatchPos (mt AS matchType, target AS INTEGER, drg AS INTEGER, x AS SINGLE
     y = peg(mt.peg).y
     IF drg >= 10 AND mt.peg = target THEN
         IF slotColor(peg(drg).set, mt.slot) > 0 THEN
-            x = _MOUSEX
-            y = _MOUSEY
+            x = dragX
+            y = dragY
             isDragged = true
         END IF
     END IF
@@ -1724,7 +1991,7 @@ SUB generateSparkles
     IF countSparkles > 50 THEN EXIT SUB
 
     fadeIn = clampf((clock - matchStart) / ELECTRIC_FADE_IN, 0, 1)
-    IF RND >= .15 * fadeIn THEN EXIT SUB
+    IF RND >= .15 * fadeIn * frameStep THEN EXIT SUB
 
     FOR i = 1 TO matchCount
         getMatchPos match(i), matchTarget, dragging, x, y, isDragged
@@ -1761,9 +2028,9 @@ SUB updateSparkles
     DIM i AS INTEGER, a AS SINGLE, sz AS SINGLE
     FOR i = 1 TO UBOUND(sparkle)
         IF sparkle(i).state THEN
-            sparkle(i).x = sparkle(i).x + sparkle(i).xv
-            sparkle(i).y = sparkle(i).y + sparkle(i).yv
-            sparkle(i).life = sparkle(i).life - .04
+            sparkle(i).x = sparkle(i).x + sparkle(i).xv * frameStep
+            sparkle(i).y = sparkle(i).y + sparkle(i).yv * frameStep
+            sparkle(i).life = sparkle(i).life - .04 * frameStep
             IF sparkle(i).life <= 0 THEN
                 sparkle(i).state = false
             ELSE
@@ -1795,8 +2062,8 @@ SUB updateRipples
     DIM i AS INTEGER, a AS SINGLE, r AS INTEGER, g AS INTEGER, b AS INTEGER
     FOR i = 1 TO UBOUND(ripple)
         IF ripple(i).state THEN
-            ripple(i).radius = ripple(i).radius + 4
-            ripple(i).life = ripple(i).life - .02
+            ripple(i).radius = ripple(i).radius + 4 * frameStep
+            ripple(i).life = ripple(i).life - .02 * frameStep
             IF ripple(i).life <= 0 OR ripple(i).radius > 80 THEN
                 ripple(i).state = false
             ELSE
@@ -1813,54 +2080,18 @@ SUB updateRipples
 END SUB
 
 SUB doAnimations
-    DIM i AS INTEGER, j AS SINGLE, k AS SINGLE, o AS SINGLE, now AS DOUBLE
-    DIM p AS SINGLE, animSize AS SINGLE, slope AS SINGLE, maxDim AS SINGLE, col AS _UNSIGNED LONG
+    DIM i AS INTEGER, now AS DOUBLE, p AS SINGLE, col AS _UNSIGNED LONG
     DIM tt AS SINGLE, scale AS SINGLE, alpha AS SINGLE, yOff AS SINGLE, bounce AS SINGLE
-    DIM a AS SINGLE, tx AS SINGLE, ty AS SINGLE, cy AS SINGLE
+    DIM tx AS SINGLE, ty AS SINGLE, cx AS SINGLE, cy AS SINGLE
+    DIM e AS SINGLE, u AS SINGLE, x AS SINGLE, y AS SINGLE
 
     now = clock
     FOR i = 0 TO UBOUND(animation)
         IF animation(i).start > 0 AND now - animation(i).start <= animation(i).duration THEN
             p = (now - animation(i).start) / animation(i).duration
-            animSize = map(p, 0, 1, 50, 0)
-            col = _RGBA32(animation(i).r, animation(i).g, animation(i).b, 20)
             SELECT CASE i
                 CASE 0 'board flash
                     LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGBA32(255, 255, 255, map(p, 0, 1, 100, 0)), BF
-                CASE 1 'across
-                    FOR j = 0 TO _WIDTH STEP _WIDTH / 30
-                        FOR k = 1 TO animSize STEP 5
-                            CircleFill j, animation(i).y, k, col
-                        NEXT
-                    NEXT
-                CASE 2 'down
-                    FOR j = 0 TO _HEIGHT STEP _HEIGHT / 30
-                        FOR k = 1 TO animSize STEP 5
-                            CircleFill animation(i).x, j, k, col
-                        NEXT
-                    NEXT
-                CASE 3, 4 'diagonals, through the center peg
-                    IF i = 3 THEN
-                        slope = (peg(9).y - peg(1).y) / (peg(9).x - peg(1).x)
-                    ELSE
-                        slope = (peg(7).y - peg(3).y) / (peg(7).x - peg(3).x)
-                    END IF
-                    maxDim = _WIDTH
-                    IF _HEIGHT > maxDim THEN maxDim = _HEIGHT
-                    FOR o = -maxDim TO maxDim STEP maxDim / 30
-                        FOR k = 1 TO animSize STEP 5
-                            CircleFill peg(5).x + o, peg(5).y + o * slope, k, col
-                        NEXT
-                    NEXT
-                CASE 5 'single peg ((o))
-                    FOR k = 1 TO animSize * 2
-                        CircleFill animation(i).x, animation(i).y, k, col
-                    NEXT
-                CASE 6 'new peg set
-                    FOR k = 10 TO 12
-                        CIRCLE (peg(k).x, peg(k).y), animSize * 1.5, _RGBA32(255, 255, 255, animSize / 2)
-                        CIRCLE (peg(k).x, peg(k).y), animSize, _RGBA32(255, 255, 255, animSize)
-                    NEXT
                 CASE 7 'combo info: bounce in, hold, fade out
                     IF p < .3 THEN
                         tt = p / .3
@@ -1886,20 +2117,30 @@ SUB doAnimations
                     ELSE
                         drawScaledText m$(2), _WIDTH / 2, cy, 3, scale, _RGBA32(255, 255, 0, alpha * 255), _RGBA32(255, 0, 0, alpha * 200), 0
                     END IF
-                CASE 8 'score increase
+                CASE 8 'score increase: arcs up and over into the score panel
                     tx = scoreTargetX
                     ty = scoreTargetY
-                    animation(8).x = lerp(animation(8).x, tx, .06)
-                    animation(8).y = lerp(animation(8).y, ty, .06)
-                    a = dist(animation(8).x, animation(8).y, tx, ty)
-                    IF a <= 30 THEN
+                    tt = (now - animation(8).start) / animation(8).size
+                    col = _RGB32(animation(8).r, animation(8).g, animation(8).b)
+                    IF tt >= 1 THEN
                         animation(8).start = 0
+                        kickScore 3 + clampf(animation(8).xa / 10, 0, 5)
+                        scoreShake = 1
+                        addSparkBurst tx, ty, 30, .35, col, 0
+                        addShockwave tx, ty, 5, .04, col, 0
+                    ELSE
+                        e = tt * tt * (3 - 2 * tt)
+                        cx = (animation(8).x + tx) / 2
+                        cy = animation(8).y
+                        IF ty < cy THEN cy = ty
+                        cy = cy - 100
+                        u = 1 - e
+                        x = u * u * animation(8).x + 2 * u * e * cx + e * e * tx
+                        y = u * u * animation(8).y + 2 * u * e * cy + e * e * ty
+                        scale = 1.3 - .7 * e
+                        IF tt < .15 THEN scale = scale * easeOutBack(tt / .15)
+                        drawScaledText LTRIM$(STR$(animation(8).xa)), x, y, 4, scale, _RGB32(255), col, 0
                     END IF
-                    a = clampf(map(a, 0, animation(8).ya, 0, 1024), 0, 255)
-                    COLOR _RGBA32(animation(8).r, animation(8).g, animation(8).b, a)
-                    printLarge 2 + animation(8).x, 2 + animation(8).y, LTRIM$(STR$(animation(8).xa)), 4
-                    COLOR _RGBA32(255, 255, 255, a)
-                    printLarge animation(8).x, animation(8).y, LTRIM$(STR$(animation(8).xa)), 4
             END SELECT
         END IF
     NEXT
@@ -1914,11 +2155,43 @@ FUNCTION scoreTargetX!
 END FUNCTION
 
 FUNCTION scoreTargetY!
-    scoreTargetY! = 111
+    scoreTargetY! = 111 + fontHeightLarge(3) / 2
 END FUNCTION
 
+SUB kickScore (amount AS SINGLE)
+    'push the score panel's spring; it overshoots and settles back
+    scorePopV = scorePopV + amount
+END SUB
+
+SUB drawScore (s$, x AS SINGLE, y AS SINGLE, scale AS SINGLE)
+    'score with a cyan halo, scaled from its left edge around its vertical center
+    DIM img AS LONG, prevDest AS LONG, w AS INTEGER, h AS INTEGER
+
+    w = printWidthLarge(s$, 3) + 4
+    h = fontHeightLarge(3) + 4
+    prevDest = _DEST
+    img = _NEWIMAGE(w, h, 32)
+    _DEST img
+    _PRINTMODE _KEEPBACKGROUND
+    COLOR _RGBA32(0, 255, 255, clampf(40 + scoreShake * 40, 0, 255))
+    printLarge 0, 2, s$, 3
+    printLarge 4, 2, s$, 3
+    printLarge 2, 0, s$, 3
+    printLarge 2, 4, s$, 3
+    COLOR _RGB32(255)
+    printLarge 2, 2, s$, 3
+    _DEST prevDest
+
+    IF ABS(scale - 1) < .005 THEN
+        _PUTIMAGE (x - 2, y - 2), img
+    ELSE
+        _PUTIMAGE (x - 2 * scale, y + h / 2 - 2 - h * scale / 2)-STEP(w * scale - 1, h * scale - 1), img
+    END IF
+    _FREEIMAGE img
+END SUB
+
 SUB drawHUD
-    DIM t AS DOUBLE, glow AS SINGLE, k AS INTEGER, s$, sx AS SINGLE, sy AS SINGLE, pulse AS SINGLE
+    DIM t AS DOUBLE, glow AS SINGLE, k AS INTEGER, sx AS SINGLE, sy AS SINGLE, pulse AS SINGLE, tt AS SINGLE
 
     t = clock
 
@@ -1952,31 +2225,35 @@ SUB drawHUD
     _PRINTSTRING (22, 92), "SCORE"
     _FONT 16
 
-    'score shakes when increasing
-    s$ = LTRIM$(STR$(INT(visibleScore)))
-    sx = 22 + (RND * scoreShake * 4 - scoreShake * 2)
-    sy = 111 + (RND * scoreShake * 4 - scoreShake * 2)
-    COLOR _RGBA32(0, 255, 255, clampf(40 + scoreShake * 40, 0, 255))
-    printLarge sx - 2, sy, s$, 3
-    printLarge sx + 2, sy, s$, 3
-    printLarge sx, sy - 2, s$, 3
-    printLarge sx, sy + 2, s$, 3
-    COLOR _RGB32(255)
-    printLarge sx, sy, s$, 3
+    'score pops (springs) when increasing; its halo brightens
+    drawScore LTRIM$(STR$(INT(visibleScore))), 22, 111, clampf(1 + scorePop, .7, 1.6)
 
     'multiplier with pulse animation
     IF multiplier > 1 THEN
         pulse = SIN(t / .2) * .15 + 1
         drawScaledText "x" + LTRIM$(STR$(multiplier)) + " COMBO!", 22, 177, 1, 1.25 * pulse, _RGB32(255, 85, 85), _RGBA32(255, 0, 0, 150), 1
+    ELSEIF comboLostStart > 0 AND t - comboLostStart < .7 THEN
+        'a broken combo shudders, then drops off the panel
+        tt = (t - comboLostStart) / .7
+        sx = 22
+        IF tt < .3 THEN sx = sx + SIN(tt * 80) * 4 * (1 - tt / .3)
+        sy = 177 + 320 * tt * tt
+        drawScaledText "x" + LTRIM$(STR$(comboLost)) + " COMBO!", sx, sy, 1, 1.25 * (1 - .3 * tt), _RGBA32(200, 90, 90, (1 - tt) * 255), _RGBA32(80, 0, 0, (1 - tt) * 150), 1
     END IF
 
     doButtons
 END SUB
 
 SUB drawTutorial
-    DIM i AS INTEGER, target AS INTEGER, ax AS SINGLE, ay AS SINGLE
+    DIM i AS INTEGER, target AS INTEGER, ax AS SINGLE, ay AS SINGLE, a AS SINGLE
 
-    IF showTutorial = false OR gameOver THEN EXIT SUB
+    'fades in when it is due and out as soon as the player starts dragging
+    IF showTutorial AND gameOver = false THEN
+        tutorialFade = clampf(tutorialFade + frameDt * 4, 0, 1)
+    ELSE
+        tutorialFade = clampf(tutorialFade - frameDt * 6, 0, 1)
+    END IF
+    IF tutorialFade <= 0 THEN EXIT SUB
 
     FOR i = 10 TO 12
         IF peg(i).set <> emptySet$ THEN target = i: EXIT FOR
@@ -1984,39 +2261,40 @@ SUB drawTutorial
     IF target = 0 THEN EXIT SUB
 
     'bouncing arrow pointing at the spawn area
+    a = easeOutCubic(tutorialFade)
     ax = peg(target).x
-    ay = peg(target).y - 80 + SIN(clock / .5) * 10
-    thickLine ax, ay, ax, ay + 30, 10, _RGBA32(255, 255, 100, 50)
-    thickLine ax, ay, ax, ay + 30, 4, _RGBA32(255, 255, 100, 230)
-    fillTriangle ax, ay + 30, ax - 10, ay + 15, ax + 10, ay + 15, _RGBA32(255, 255, 100, 230)
+    ay = peg(target).y - 80 + SIN(clock / .5) * 10 - (1 - a) * 15
+    thickLine ax, ay, ax, ay + 30, 10, _RGBA32(255, 255, 100, 50 * a)
+    thickLine ax, ay, ax, ay + 30, 4, _RGBA32(255, 255, 100, 230 * a)
+    fillTriangle ax, ay + 30, ax - 10, ay + 15, ax + 10, ay + 15, _RGBA32(255, 255, 100, 230 * a)
 
-    outlinedText "Drag these rings", ax, ay - 30
-    outlinedText "to the board", ax, ay - 10
+    outlinedText "Drag these rings", ax, ay - 30, a
+    outlinedText "to the board", ax, ay - 10, a
 END SUB
 
-SUB outlinedText (text$, cx AS SINGLE, cy AS SINGLE)
+SUB outlinedText (text$, cx AS SINGLE, cy AS SINGLE, alpha AS SINGLE)
     DIM x AS SINGLE, y AS SINGLE, ox AS INTEGER, oy AS INTEGER
 
     x = cx - _PRINTWIDTH(text$) / 2
     y = cy - _FONTHEIGHT / 2
-    COLOR _RGBA32(0, 0, 0, 200)
+    COLOR _RGBA32(0, 0, 0, 200 * alpha)
     FOR oy = -2 TO 2 STEP 2
         FOR ox = -2 TO 2 STEP 2
             IF ox <> 0 OR oy <> 0 THEN _PRINTSTRING (x + ox, y + oy), text$
         NEXT
     NEXT
-    COLOR _RGB32(255)
+    COLOR _RGBA32(255, 255, 255, 255 * alpha)
     _PRINTSTRING (x, y), text$
 END SUB
 
-SUB drawPauseOverlay
-    LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGBA32(0, 0, 0, 153), BF
-    COLOR _RGBA32(255, 255, 255, 50)
-    centerLarge _HEIGHT / 2 - 62 - 3, "PAUSED", 4
-    centerLarge _HEIGHT / 2 - 62 + 3, "PAUSED", 4
-    COLOR _RGB32(255)
-    centerLarge _HEIGHT / 2 - 62, "PAUSED", 4
-    drawScaledText "Click to continue", _WIDTH / 2, _HEIGHT / 2 + 30, 1, 1.5, _RGB32(255), _RGBA32(255, 255, 255, 60), 0
+SUB drawPauseOverlay (fade AS SINGLE)
+    DIM a AS SINGLE, s AS SINGLE
+
+    a = easeOutCubic(fade)
+    s = .9 + .1 * a
+    LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGBA32(0, 0, 0, 153 * a), BF
+    drawScaledText "PAUSED", _WIDTH / 2, _HEIGHT / 2 - 62 + fontHeightLarge(4) / 2, 4, s, _RGBA32(255, 255, 255, 255 * a), _RGBA32(255, 255, 255, 50 * a), 0
+    drawScaledText "Click to continue", _WIDTH / 2, _HEIGHT / 2 + 30, 1, 1.5 * s, _RGBA32(255, 255, 255, 255 * a), _RGBA32(255, 255, 255, 60 * a), 0
 END SUB
 
 SUB applyScreenZoom
@@ -2027,7 +2305,7 @@ SUB applyScreenZoom
     w = _WIDTH * screenZoom
     h = _HEIGHT * screenZoom
     _DONTBLEND
-    _PUTIMAGE ((_WIDTH - w) / 2, (_HEIGHT - h) / 2)-STEP(w, h), img
+    _PUTIMAGE (zoomX * (1 - screenZoom), zoomY * (1 - screenZoom))-STEP(w, h), img 'zoomX, zoomY stay put
     _BLEND
     _FREEIMAGE img
 END SUB
@@ -2352,9 +2630,9 @@ SUB updateBurstParticle (i AS INTEGER, now AS DOUBLE)
     r = _RED32(particle(i).c): g = _GREEN32(particle(i).c): b = _BLUE32(particle(i).c)
     SELECT CASE particle(i).shape
         CASE 5 'shockwave
-            particle(i).size = particle(i).size + particle(i).xv
-            particle(i).xv = particle(i).xv * .96
-            particle(i).life = particle(i).life - particle(i).decay
+            particle(i).size = particle(i).size + particle(i).xv * frameStep
+            particle(i).xv = particle(i).xv * .96 ^ frameStep
+            particle(i).life = particle(i).life - particle(i).decay * frameStep
             IF particle(i).life <= 0 THEN particle(i).state = false: EXIT SUB
 
             a = particle(i).life
@@ -2365,11 +2643,11 @@ SUB updateBurstParticle (i AS INTEGER, now AS DOUBLE)
             CIRCLE (particle(i).x, particle(i).y), particle(i).size, _RGBA32(255, 255, 255, a * 200)
             CIRCLE (particle(i).x, particle(i).y), particle(i).size * .8, _RGBA32(r, g, b, a * 50)
         CASE 6 'spark
-            particle(i).x = particle(i).x + particle(i).xv
-            particle(i).y = particle(i).y + particle(i).yv
-            particle(i).xv = particle(i).xv * .95
-            particle(i).yv = particle(i).yv * .95 + .02
-            particle(i).life = particle(i).life - particle(i).decay
+            particle(i).x = particle(i).x + particle(i).xv * frameStep
+            particle(i).y = particle(i).y + particle(i).yv * frameStep
+            particle(i).xv = particle(i).xv * .95 ^ frameStep
+            particle(i).yv = particle(i).yv * .95 ^ frameStep + .02 * frameStep
+            particle(i).life = particle(i).life - particle(i).decay * frameStep
             IF particle(i).life <= 0 OR particle(i).x < -20 OR particle(i).x > _WIDTH + 20 OR particle(i).y < -20 OR particle(i).y > _HEIGHT + 20 THEN
                 particle(i).state = false: EXIT SUB
             END IF
@@ -2430,9 +2708,9 @@ SUB updateParticles
         CONST gravity = .1
         IF particle(i).state THEN
             IF particle(i).shape = 0 THEN
-                particle(i).yv = particle(i).yv + gravity
-                particle(i).x = particle(i).x + particle(i).xv
-                particle(i).y = particle(i).y + particle(i).yv
+                particle(i).yv = particle(i).yv + gravity * frameStep
+                particle(i).x = particle(i).x + particle(i).xv * frameStep
+                particle(i).y = particle(i).y + particle(i).yv * frameStep
                 a = map(now - particle(i).start, 0, particle(i).duration, 255, 0)
 
                 IF particle(i).x > _WIDTH OR particle(i).x < 0 OR particle(i).y > _HEIGHT OR particle(i).y < 0 OR a <= 0 THEN
@@ -2443,11 +2721,11 @@ SUB updateParticles
             ELSEIF particle(i).shape >= 5 THEN
                 updateBurstParticle i, now
             ELSE
-                particle(i).x = particle(i).x + particle(i).xv
-                particle(i).y = particle(i).y + particle(i).yv
-                particle(i).yv = particle(i).yv + .2
-                particle(i).rotation = particle(i).rotation + particle(i).rotationSpeed
-                particle(i).life = particle(i).life - particle(i).decay
+                particle(i).x = particle(i).x + particle(i).xv * frameStep
+                particle(i).y = particle(i).y + particle(i).yv * frameStep
+                particle(i).yv = particle(i).yv + .2 * frameStep
+                particle(i).rotation = particle(i).rotation + particle(i).rotationSpeed * frameStep
+                particle(i).life = particle(i).life - particle(i).decay * frameStep
                 IF particle(i).life <= 0 OR particle(i).y > _HEIGHT + 20 THEN
                     particle(i).state = false
                 ELSE
@@ -2500,7 +2778,7 @@ END SUB
 
 SUB updateScore
     STATIC lastTick AS DOUBLE
-    DIM before AS LONG, stp AS SINGLE
+    DIM before AS LONG, stp AS SINGLE, dt AS SINGLE
 
     IF scoreFlying = false THEN
         IF visibleScore < score THEN
@@ -2512,6 +2790,7 @@ SUB updateScore
             IF INT(visibleScore) - before > 5 THEN scoreShake = 1
             IF INT(visibleScore) <> before AND clock - lastTick > .05 THEN
                 playSfx woodblock, 1
+                kickScore .8
                 lastTick = clock
             END IF
         ELSEIF visibleScore > score THEN
@@ -2530,6 +2809,12 @@ SUB updateScore
         scoreShake = scoreShake - frameDt * 3
         IF scoreShake < 0 THEN scoreShake = 0
     END IF
+
+    'damped spring pulling the score scale back to 1
+    dt = frameDt
+    IF dt > 1 / 30 THEN dt = 1 / 30
+    scorePopV = scorePopV + (-300 * scorePop - 14 * scorePopV) * dt
+    scorePop = scorePop + scorePopV * dt
 END SUB
 
 SUB playSfx (handle AS LONG, baseVolume AS SINGLE)
@@ -2728,6 +3013,16 @@ FUNCTION easeOutCubic! (t AS SINGLE)
     easeOutCubic! = 1 - (1 - t) ^ 3
 END FUNCTION
 
+FUNCTION easeOutBack! (t AS SINGLE)
+    'overshoots a little before settling at 1
+    CONST c1 = 1.70158
+    easeOutBack! = 1 + (c1 + 1) * (t - 1) ^ 3 + c1 * (t - 1) ^ 2
+END FUNCTION
+
+FUNCTION mixColor~& (c1 AS _UNSIGNED LONG, c2 AS _UNSIGNED LONG, t AS SINGLE)
+    mixColor~& = _RGBA32(_RED32(c1) + (_RED32(c2) - _RED32(c1)) * t, _GREEN32(c1) + (_GREEN32(c2) - _GREEN32(c1)) * t, _BLUE32(c1) + (_BLUE32(c2) - _BLUE32(c1)) * t, _ALPHA32(c1) + (_ALPHA32(c2) - _ALPHA32(c1)) * t)
+END FUNCTION
+
 FUNCTION map! (value!, minRange!, maxRange!, newMinRange!, newMaxRange!)
     map! = ((value! - minRange!) / (maxRange! - minRange!)) * (newMaxRange! - newMinRange!) + newMinRange!
 END FUNCTION
@@ -2894,13 +3189,10 @@ SUB endScreen
 
         start = clock
         DO
-            s = map(clock - start, 0, .5, 1, .25)
-            IF s < .25 THEN s = .25
+            s = 1 - .75 * easeOutCubic(clampf((clock - start) / .5, 0, 1))
             drawBackground
             _PUTIMAGE ((_WIDTH - _WIDTH * s) / 2, 0)-STEP(_WIDTH * s, _HEIGHT * s), screenshot
-            IF clock - start < .3 THEN
-                LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGBA32(255, 255, 255, map(clock - start, 0, .3, 0, 255)), BF
-            END IF
+            transitionFlash clock - start
             updateParticles
             _DISPLAY
             _LIMIT 60
@@ -3169,13 +3461,10 @@ SUB endScreen
             'bring screenshot back to front
             start = clock
             DO
-                s = map(clock - start, 0, .5, 2 / 3, 1)
-                IF s > 1 THEN s = 1
+                s = .25 + .75 * easeOutCubic(clampf((clock - start) / .5, 0, 1))
                 drawBackground
                 _PUTIMAGE ((_WIDTH - _WIDTH * s) / 2, 0)-STEP(_WIDTH * s, _HEIGHT * s), screenshot
-                IF clock - start <= .3 THEN
-                    LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGBA32(255, 255, 255, map(clock - start, 0, .3, 0, 255)), BF
-                END IF
+                transitionFlash clock - start
                 _DISPLAY
                 _LIMIT 60
             LOOP UNTIL clock - start > .5
@@ -3195,6 +3484,11 @@ SUB printHighScore (x AS INTEGER, y AS INTEGER, player$, value AS _UNSIGNED LONG
     _PRINTSTRING (x + 176 - _PRINTWIDTH(v$), y), v$
 END SUB
 
+SUB transitionFlash (t AS SINGLE)
+    'quick white flash at the start of a screen transition
+    IF t < .35 THEN LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGBA32(255, 255, 255, 200 * (1 - t / .35) ^ 2), BF
+END SUB
+
 SUB settingsScreen
     DIM screenshot AS LONG, s AS SINGLE, sw AS SINGLE, sh AS SINGLE, start AS DOUBLE
     DIM i AS INTEGER, mx AS INTEGER, my AS INTEGER, currentMode AS INTEGER, prevbt AS INTEGER
@@ -3208,15 +3502,12 @@ SUB settingsScreen
 
     start = clock
     DO
-        s = map(clock - start, 0, .5, 1, 1 / 3)
-        IF s < 1 / 3 THEN s = 1 / 3
+        s = 1 - (2 / 3) * easeOutCubic(clampf((clock - start) / .5, 0, 1))
         sw = _WIDTH * s
         sh = _HEIGHT * s
         drawBackground
         _PUTIMAGE (0, (_HEIGHT - sh) / 2)-STEP(sw, sh), screenshot
-        IF clock - start < .3 THEN
-            LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGBA32(255, 255, 255, map(clock - start, 0, .3, 0, 255)), BF
-        END IF
+        transitionFlash clock - start
 
         updateParticles
         _DISPLAY
@@ -3407,13 +3698,10 @@ SUB settingsScreen
     'bring screenshot back to front
     start = clock
     DO
-        s = map(clock - start, 0, .5, 2 / 3, 1)
-        IF s > 1 THEN s = 1
+        s = 1 / 3 + (2 / 3) * easeOutCubic(clampf((clock - start) / .5, 0, 1))
         drawBackground
         _PUTIMAGE (0, (_HEIGHT - _HEIGHT * s) / 2)-STEP(_WIDTH * s, _HEIGHT * s), screenshot
-        IF clock - start <= .3 THEN
-            LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGBA32(255, 255, 255, map(clock - start, 0, .3, 0, 255)), BF
-        END IF
+        transitionFlash clock - start
         _DISPLAY
         _LIMIT 60
     LOOP UNTIL clock - start > .5
@@ -3483,26 +3771,31 @@ SUB doButtons
                 COLOR _RGB32(255)
                 _PRINTSTRING (button(i).x + (button(i).w - _PRINTWIDTH(caption(i))) / 2, button(i).y + (button(i).h - _FONTHEIGHT) / 2), caption(i)
             CASE 2
-                IF i = currentButton THEN
-                    LINE (button(i).x, button(i).y)-STEP(button(i).w, button(i).h), _RGBA32(255, 255, 255, 80), BF
-                    LINE (button(i).x, button(i).y)-STEP(button(i).w, button(i).h), _RGB32(67, 172, 183), B
-                ELSE
-                    LINE (button(i).x, button(i).y)-STEP(button(i).w, button(i).h), _RGB32(136), B
-                END IF
+                updateButtonHover i
+                IF buttonHover(i) > 0 THEN LINE (button(i).x, button(i).y)-STEP(button(i).w, button(i).h), _RGBA32(255, 255, 255, 80 * buttonHover(i)), BF
+                LINE (button(i).x, button(i).y)-STEP(button(i).w, button(i).h), mixColor(_RGB32(136), _RGB32(67, 172, 183), buttonHover(i)), B
         END SELECT
     NEXT
 END SUB
 
-SUB drawButtonBox (i AS INTEGER)
+SUB updateButtonHover (i AS INTEGER)
+    'hover highlight eases in and out instead of switching instantly
     IF i = currentButton THEN
-        LINE (button(i).x, button(i).y)-STEP(button(i).w, button(i).h), _RGBA32(67, 172, 183, 128), BF
-        LINE (button(i).x, button(i).y)-STEP(button(i).w, button(i).h), _RGB32(67, 172, 183), B
-        LINE (button(i).x + 1, button(i).y + 1)-STEP(button(i).w - 2, button(i).h - 2), _RGB32(67, 172, 183), B
+        buttonHover(i) = clampf(buttonHover(i) + frameDt * 10, 0, 1)
     ELSE
-        LINE (button(i).x, button(i).y)-STEP(button(i).w, button(i).h), _RGBA32(50, 50, 50, 128), BF
-        LINE (button(i).x, button(i).y)-STEP(button(i).w, button(i).h), _RGB32(136), B
-        LINE (button(i).x + 1, button(i).y + 1)-STEP(button(i).w - 2, button(i).h - 2), _RGB32(136), B
+        buttonHover(i) = clampf(buttonHover(i) - frameDt * 6, 0, 1)
     END IF
+END SUB
+
+SUB drawButtonBox (i AS INTEGER)
+    DIM h AS SINGLE, edge AS _UNSIGNED LONG
+
+    updateButtonHover i
+    h = buttonHover(i)
+    edge = mixColor(_RGB32(136), _RGB32(67, 172, 183), h)
+    LINE (button(i).x, button(i).y)-STEP(button(i).w, button(i).h), mixColor(_RGBA32(50, 50, 50, 128), _RGBA32(67, 172, 183, 128), h), BF
+    LINE (button(i).x, button(i).y)-STEP(button(i).w, button(i).h), edge, B
+    LINE (button(i).x + 1, button(i).y + 1)-STEP(button(i).w - 2, button(i).h - 2), edge, B
 END SUB
 
 SUB checkButtons
