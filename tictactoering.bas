@@ -79,7 +79,7 @@ TYPE particleType
     decay AS SINGLE
     rotation AS SINGLE
     rotationSpeed AS SINGLE
-    shape AS INTEGER '0 = classic dot; 1 to 4 = combo burst shapes
+    shape AS INTEGER '0 = classic dot; 1 to 4 = combo burst shapes; 5 = shockwave; 6 = spark; 7 = imploding streak
     state AS _BYTE
     c AS _UNSIGNED LONG
 END TYPE
@@ -304,7 +304,7 @@ DO
     END IF
 
     visibleHighScore = highscore
-    addParticles _WIDTH / 2, _HEIGHT / 2, 5000, _RGB32(255)
+    boardStartBurst
     dragging = 0
     mouseDown = false
     gameOverDone = false
@@ -900,7 +900,7 @@ SUB doIntro
     DIM x AS SINGLE, y AS SINGLE, i AS INTEGER, j AS INTEGER
     DIM introRings(1 TO 30) AS object
     DIM px(1 TO 30) AS SINGLE, py(1 TO 30) AS SINGLE, connected(1 TO 30) AS _BYTE
-    DIM introTimer AS DOUBLE, t AS SINGLE, d AS SINGLE, intensity AS SINGLE, glowI AS SINGLE
+    DIM introTimer AS DOUBLE, t AS SINGLE, d AS SINGLE, intensity AS SINGLE, glowI AS SINGLE, banged AS _BYTE
 
     FOR i = 1 TO UBOUND(introRings)
         introRings(i).xa = RND * _PI(2)
@@ -910,24 +910,33 @@ SUB doIntro
         introRings(i).text = _CEIL(RND * UBOUND(ringColor)) 'ring color
     NEXT
 
-    addParticles _WIDTH / 2, _HEIGHT / 2, 5000, _RGB32(255)
+    CONST INTRO_BANG = 1 'moment the implosion converges and the rings burst out
 
     introTimer = clock
+    addImplosion _WIDTH / 2, _HEIGHT / 2, 400, introTimer + INTRO_BANG
+    banged = false
     applyMusicVolume
     DO
         t = clock - introTimer
         drawBackground
 
+        IF t >= INTRO_BANG AND banged = false THEN
+            bigBang _WIDTH / 2, _HEIGHT / 2
+            banged = true
+        END IF
+
         FOR i = 1 TO UBOUND(introRings)
-            introRings(i).xa = introRings(i).xa + .01
-            introRings(i).size = introRings(i).size + introRings(i).xv
+            IF banged THEN
+                introRings(i).xa = introRings(i).xa + .01
+                introRings(i).size = introRings(i).size + introRings(i).xv
+            END IF
             px(i) = _WIDTH / 2 + COS(introRings(i).xa) * introRings(i).size
             py(i) = _HEIGHT / 2 + SIN(introRings(i).xa) * introRings(i).size
             connected(i) = false
         NEXT
 
         'electric bolts between nearby rings of the same color
-        IF t > 1 AND t < 5 THEN
+        IF t > INTRO_BANG + .4 AND t < 5 THEN
             FOR i = 1 TO UBOUND(introRings) - 1
                 FOR j = i + 1 TO UBOUND(introRings)
                     IF introRings(i).text = introRings(j).text THEN
@@ -945,6 +954,7 @@ SUB doIntro
 
         glowI = .5 + SIN(clock / .15) * .3
         FOR i = 1 TO UBOUND(introRings)
+            IF banged = false THEN EXIT FOR
             IF connected(i) THEN
                 drawRingAt px(i), py(i), introRings(i).w, introRings(i).text, glowI, true
             ELSE
@@ -966,7 +976,8 @@ SUB doIntro
         centerLarge (_HEIGHT / 2), "Rings", 7
         centerLarge _HEIGHT - fontHeightLarge(2), "Fellippe Heitor, 2020-2026", 1
 
-        LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGBA32(255, 255, 255, clampf(map(t, 0, 1.5, 255, 0), 0, 255)), BF
+        LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGBA32(255, 255, 255, clampf(map(t, 0, .7, 255, 0), 0, 255)), BF
+        IF banged THEN LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGBA32(255, 255, 255, clampf(map(t, INTRO_BANG, INTRO_BANG + .35, 200, 0), 0, 255)), BF 'bang flash
         LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGBA32(255, 255, 255, clampf(map(t, 4, 5, 0, 255), 0, 255)), BF
         LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGBA32(0, 0, 0, clampf(map(t, 5, 6, 0, 255), 0, 255)), BF
 
@@ -2224,6 +2235,162 @@ SUB addParticles (x AS SINGLE, y AS SINGLE, total AS INTEGER, c AS _UNSIGNED LON
     LOOP UNTIL addedP >= total
 END SUB
 
+FUNCTION freeParticle%
+    'first inactive slot in the particle pool (0 if the pool is full)
+    DIM p AS INTEGER
+    FOR p = 1 TO UBOUND(particle)
+        IF particle(p).state = false THEN freeParticle% = p: EXIT FUNCTION
+    NEXT
+END FUNCTION
+
+SUB addShockwave (x AS SINGLE, y AS SINGLE, speed AS SINGLE, decay AS SINGLE, c AS _UNSIGNED LONG, delay AS SINGLE)
+    'expanding ring that slows down and thins out as it fades
+    DIM p AS INTEGER
+
+    p = freeParticle
+    IF p = 0 THEN EXIT SUB
+    particle(p).state = true
+    particle(p).shape = 5
+    particle(p).x = x
+    particle(p).y = y
+    particle(p).size = 0 'radius
+    particle(p).xv = speed
+    particle(p).life = 1
+    particle(p).decay = decay
+    particle(p).duration = 2 + speed * .4 'ring thickness
+    particle(p).c = c
+    particle(p).start = clock + delay
+END SUB
+
+SUB addSparkBurst (x AS SINGLE, y AS SINGLE, total AS INTEGER, power AS SINGLE, c AS _UNSIGNED LONG, delay AS SINGLE)
+    'glowing sparks thrown outwards in a shell, slowed down by drag; c = 0 mixes white with ring colors
+    DIM addedP AS INTEGER, p AS INTEGER, a AS SINGLE, spd AS SINGLE
+
+    FOR p = 1 TO UBOUND(particle)
+        IF addedP >= total THEN EXIT FOR
+        IF particle(p).state = false THEN
+            addedP = addedP + 1
+            particle(p).state = true
+            particle(p).shape = 6
+            particle(p).x = x
+            particle(p).y = y
+            a = RND * _PI(2)
+            spd = (3 + (1 - RND ^ 4) * 15) * power 'most sparks travel near the leading edge
+            particle(p).xv = COS(a) * spd
+            particle(p).yv = SIN(a) * spd
+            particle(p).size = 1 + RND * 2.5
+            particle(p).life = 1
+            particle(p).decay = .008 + RND * .012
+            IF c <> 0 THEN
+                particle(p).c = c
+            ELSEIF RND < .55 THEN
+                particle(p).c = _RGB32(255)
+            ELSE
+                particle(p).c = ringColor(_CEIL(RND * 8))
+            END IF
+            particle(p).start = clock + delay
+        END IF
+    NEXT
+END SUB
+
+SUB addImplosion (x AS SINGLE, y AS SINGLE, total AS INTEGER, arrival AS DOUBLE)
+    'streaks that rush in from all around and all reach (x, y) at the same moment
+    DIM addedP AS INTEGER, p AS INTEGER, a AS SINGLE, d AS SINGLE
+
+    FOR p = 1 TO UBOUND(particle)
+        IF addedP >= total THEN EXIT FOR
+        IF particle(p).state = false THEN
+            addedP = addedP + 1
+            particle(p).state = true
+            particle(p).shape = 7
+            a = RND * _PI(2)
+            d = 250 + RND * 450
+            particle(p).x = x + COS(a) * d 'origin
+            particle(p).y = y + SIN(a) * d
+            particle(p).xv = -COS(a) * d 'path to the target
+            particle(p).yv = -SIN(a) * d
+            particle(p).size = 1 + RND * 2
+            particle(p).duration = .45 + RND * .45
+            particle(p).start = arrival - particle(p).duration
+            IF RND < .5 THEN particle(p).c = _RGB32(255) ELSE particle(p).c = ringColor(_CEIL(RND * 8))
+        END IF
+    NEXT
+END SUB
+
+SUB bigBang (x AS SINGLE, y AS SINGLE)
+    'intro explosion: layered shockwaves in ring colors plus a shell of sparks
+    addShockwave x, y, 24, .012, _RGB32(255), 0
+    addShockwave x, y, 17, .014, ringColor(_CEIL(RND * 8)), .08
+    addShockwave x, y, 12, .016, ringColor(_CEIL(RND * 8)), .16
+    addSparkBurst x, y, 1200, 1, 0, 0
+    disturbParticles x, y, 6, _WIDTH
+END SUB
+
+SUB boardStartBurst
+    'game start: a wave leaves the center of the board and lights each peg up as it passes
+    DIM i AS INTEGER, delay AS SINGLE, c AS _UNSIGNED LONG
+
+    addShockwave peg(5).x, peg(5).y, 16, .02, _RGB32(255), 0
+    addSparkBurst peg(5).x, peg(5).y, 400, .8, 0, 0
+    disturbParticles peg(5).x, peg(5).y, 4, _WIDTH
+
+    FOR i = 1 TO 9
+        delay = dist(peg(i).x, peg(i).y, peg(5).x, peg(5).y) / 800 'roughly when the wave reaches it
+        c = ringColor(_CEIL(RND * 3))
+        addShockwave peg(i).x, peg(i).y, 5, .035, c, delay
+        addSparkBurst peg(i).x, peg(i).y, 25, .3, c, delay
+        addSparkBurst peg(i).x, peg(i).y, 15, .3, _RGB32(255), delay
+    NEXT
+END SUB
+
+SUB updateBurstParticle (i AS INTEGER, now AS DOUBLE)
+    DIM r AS INTEGER, g AS INTEGER, b AS INTEGER, k AS INTEGER, w AS INTEGER
+    DIM t AS SINGLE, e AS SINGLE, e0 AS SINGLE, s AS SINGLE, a AS SINGLE
+
+    IF now < particle(i).start THEN EXIT SUB 'not started yet
+
+    r = _RED32(particle(i).c): g = _GREEN32(particle(i).c): b = _BLUE32(particle(i).c)
+    SELECT CASE particle(i).shape
+        CASE 5 'shockwave
+            particle(i).size = particle(i).size + particle(i).xv
+            particle(i).xv = particle(i).xv * .96
+            particle(i).life = particle(i).life - particle(i).decay
+            IF particle(i).life <= 0 THEN particle(i).state = false: EXIT SUB
+
+            a = particle(i).life
+            w = 1 + particle(i).duration * a
+            FOR k = -w TO w
+                CIRCLE (particle(i).x, particle(i).y), particle(i).size + k, _RGBA32(r, g, b, a * 150 * (1 - ABS(k) / (w + 1)))
+            NEXT
+            CIRCLE (particle(i).x, particle(i).y), particle(i).size, _RGBA32(255, 255, 255, a * 200)
+            CIRCLE (particle(i).x, particle(i).y), particle(i).size * .8, _RGBA32(r, g, b, a * 50)
+        CASE 6 'spark
+            particle(i).x = particle(i).x + particle(i).xv
+            particle(i).y = particle(i).y + particle(i).yv
+            particle(i).xv = particle(i).xv * .95
+            particle(i).yv = particle(i).yv * .95 + .02
+            particle(i).life = particle(i).life - particle(i).decay
+            IF particle(i).life <= 0 OR particle(i).x < -20 OR particle(i).x > _WIDTH + 20 OR particle(i).y < -20 OR particle(i).y > _HEIGHT + 20 THEN
+                particle(i).state = false: EXIT SUB
+            END IF
+
+            a = particle(i).life
+            s = particle(i).size * (.4 + .6 * a)
+            CircleFill particle(i).x, particle(i).y, s * 2.5, _RGBA32(r, g, b, a * 40)
+            CircleFill particle(i).x, particle(i).y, s, _RGBA32(r, g, b, a * 255)
+        CASE 7 'imploding streak
+            t = (now - particle(i).start) / particle(i).duration
+            IF t >= 1 THEN particle(i).state = false: EXIT SUB
+
+            e = t * t * t 'accelerates into the target
+            e0 = t - .1: IF e0 < 0 THEN e0 = 0
+            e0 = e0 * e0 * e0
+            a = t * 255
+            thickLine particle(i).x + particle(i).xv * e0, particle(i).y + particle(i).yv * e0, particle(i).x + particle(i).xv * e, particle(i).y + particle(i).yv * e, particle(i).size, _RGBA32(r, g, b, a * .6)
+            CircleFill particle(i).x + particle(i).xv * e, particle(i).y + particle(i).yv * e, particle(i).size, _RGBA32(r, g, b, a)
+    END SELECT
+END SUB
+
 SUB addComboBurst (x AS SINGLE, y AS SINGLE, total AS INTEGER)
     'shaped particles (circles, stars, squares, triangles) bursting from the center
     DIM addedP AS INTEGER, p AS INTEGER
@@ -2273,6 +2440,8 @@ SUB updateParticles
                 ELSE
                     CircleFill particle(i).x, particle(i).y, particle(i).size, _RGBA32(_RED32(particle(i).c), _GREEN32(particle(i).c), _BLUE32(particle(i).c), a)
                 END IF
+            ELSEIF particle(i).shape >= 5 THEN
+                updateBurstParticle i, now
             ELSE
                 particle(i).x = particle(i).x + particle(i).xv
                 particle(i).y = particle(i).y + particle(i).yv
