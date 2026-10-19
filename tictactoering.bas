@@ -179,7 +179,7 @@ NEXT
 'images
 DIM SHARED ringColor(1 TO 10) AS _UNSIGNED LONG
 DIM SHARED circleImage(1 TO 10, 1 TO 3) AS LONG, circleGlow(1 TO 10, 1 TO 3) AS LONG
-DIM SHARED ringShadow(1 TO 3) AS LONG, pegImage AS LONG, crownIcon AS LONG
+DIM SHARED ringShadow(1 TO 3) AS LONG, pegImage AS LONG, crownIcon AS LONG, arrowIcon(0 TO 8) AS LONG
 DIM SHARED bg AS LONG, spawnAreaImage AS LONG
 DIM SHARED spawnX AS SINGLE, spawnY AS SINGLE, spawnW AS SINGLE, spawnH AS SINGLE
 
@@ -247,6 +247,7 @@ setRingColors
 generateRingImages
 generatePegImage
 generateCrownIcon
+generateArrowIcon
 
 _DEST _DISPLAY
 generateBG
@@ -669,41 +670,202 @@ SUB generatePegImage
 END SUB
 
 SUB generateCrownIcon
-    DIM i AS INTEGER, j AS INTEGER
-    DIM px AS INTEGER, prevDest AS LONG
+    'antialiased golden crown built from distance fields: three spiked body, jewel-tipped points
+    'and a band set with gems, with a dark rim and a soft drop shadow
+    DIM px AS INTEGER, py AS INTEGER, prevDest AS LONG
+    DIM d AS SINGLE, dBand AS SINGLE, dBall AS SINGLE, dGem AS SINGLE, dShadow AS SINGLE
+    DIM r AS SINGLE, g AS SINGLE, b AS SINGLE, a AS SINGLE
+    DIM t AS SINGLE, f AS SINGLE, cover AS SINGLE, sheen AS SINGLE, gx AS SINGLE
+    DIM fr AS SINGLE, fg AS SINGLE, fb AS SINGLE
 
     prevDest = _DEST
-    RESTORE crownIconData
-    crownIcon = _NEWIMAGE(24, 14, 32)
+    crownIcon = _NEWIMAGE(32, 26, 32)
     _DEST crownIcon
-    FOR i = 0 TO 13
-        FOR j = 0 TO 23
-            READ px
-            SELECT CASE px
-                CASE 1
-                    PSET (j, i), _RGB32(0)
-                CASE 2
-                    PSET (j, i), _RGB32(255, 215, 0)
-            END SELECT
+    _DONTBLEND
+    FOR py = 0 TO 25
+        FOR px = 0 TO 31
+            r = 0: g = 0: b = 0: a = 0
+
+            dShadow = crownShape(px - 1, py - 1.5, dBand, dBall)
+            blendOver r, g, b, a, 0, 0, 0, .45 * clampf((2 - dShadow) / 3, 0, 1)
+
+            d = crownShape(px, py, dBand, dBall)
+            blendOver r, g, b, a, 90, 50, 0, clampf(1.7 - d, 0, 1)
+
+            cover = clampf(.5 - d, 0, 1)
+            IF cover > 0 THEN
+                'gold with a vertical gradient, a diagonal sheen and a darker rim
+                t = clampf((py - 2) / 20, 0, 1)
+                fr = lerp(255, 225, t): fg = lerp(240, 150, t): fb = lerp(150, 15, t)
+                sheen = EXP(-((px - py * .5 - 8) ^ 2) / 6) * .45
+                f = 1 - .3 * clampf(1 + d / 1.5, 0, 1)
+                IF dBand < .5 THEN
+                    'band: deeper gold with a highlight along its top edge
+                    f = f * lerp(1, .85, clampf(.5 - dBand, 0, 1))
+                    IF py >= 17 AND py <= 17.9 THEN sheen = sheen + .35
+                END IF
+                IF dBall < .5 THEN
+                    'jewel tips: rounded with a bright specular spot
+                    gx = crownBallLight(px, py)
+                    f = f * (.9 + .25 * gx)
+                    sheen = sheen + gx * gx * .6
+                END IF
+                fr = clampf(fr * f + 255 * sheen, 0, 255)
+                fg = clampf(fg * f + 255 * sheen, 0, 255)
+                fb = clampf(fb * f + 255 * sheen, 0, 255)
+                blendOver r, g, b, a, fr, fg, fb, cover
+            END IF
+
+            'gems on the band: ruby in the middle, sapphires on the sides
+            dGem = dist(px, py, 16, 19.5) - 2
+            IF dGem < 1.2 THEN
+                blendOver r, g, b, a, 110, 0, 20, clampf(1.1 - dGem, 0, 1)
+                gx = 1 - clampf(dist(px, py, 15.3, 18.8) / 2.4, 0, 1)
+                blendOver r, g, b, a, 220 + 35 * gx, 30 + 200 * gx * gx, 60 + 180 * gx * gx, clampf(.5 - dGem, 0, 1)
+            END IF
+            FOR f = 10 TO 22 STEP 12
+                dGem = dist(px, py, f, 19.5) - 1.3
+                IF dGem < 1.2 THEN
+                    blendOver r, g, b, a, 0, 30, 90, clampf(1 - dGem, 0, 1)
+                    gx = 1 - clampf(dist(px, py, f - .5, 19) / 1.8, 0, 1)
+                    blendOver r, g, b, a, 60 + 190 * gx * gx, 150 + 100 * gx, 255, clampf(.5 - dGem, 0, 1)
+                END IF
+            NEXT
+
+            IF a > 0 THEN PSET (px, py), _RGBA32(r, g, b, a * 255)
         NEXT
     NEXT
+    _BLEND
     _DEST prevDest
+END SUB
 
-    crownIconData:
-    DATA 0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0
-    DATA 0,0,0,0,0,0,0,0,0,0,1,2,2,1,0,0,0,0,0,0,0,0,0,0
-    DATA 0,0,0,0,0,0,0,0,0,0,1,2,2,1,0,0,0,0,0,0,0,0,0,0
-    DATA 0,1,1,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,1,1,0
-    DATA 1,2,2,1,0,0,0,0,0,0,1,2,2,1,0,0,0,0,0,0,1,2,2,1
-    DATA 1,2,2,1,0,0,0,0,0,0,1,2,2,1,0,0,0,0,0,0,1,2,2,1
-    DATA 0,1,1,2,1,1,0,0,0,1,2,2,2,2,1,0,0,0,1,1,2,1,1,0
-    DATA 0,0,1,2,2,2,1,1,0,1,2,2,2,2,1,0,1,1,2,2,2,1,0,0
-    DATA 0,0,1,2,2,2,2,2,1,2,2,2,2,2,2,1,2,2,2,2,2,1,0,0
-    DATA 0,0,0,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,0,0,0
-    DATA 0,0,0,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,0,0,0
-    DATA 0,0,0,0,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,0,0,0,0
-    DATA 0,0,0,0,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,0,0,0,0
-    DATA 0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0
+FUNCTION crownShape! (px AS SINGLE, py AS SINGLE, dBand AS SINGLE, dBall AS SINGLE)
+    'signed distance to the whole crown; also returns the distances to the band and to the tip balls
+    DIM dPoly AS SINGLE, k AS INTEGER, inside AS _BYTE
+    DIM vx(6) AS SINGLE, vy(6) AS SINGLE, j AS INTEGER, qx AS SINGLE, qy AS SINGLE
+
+    vx(0) = 5: vy(0) = 19
+    vx(1) = 4: vy(1) = 8
+    vx(2) = 10.5: vy(2) = 13.5
+    vx(3) = 16: vy(3) = 5
+    vx(4) = 21.5: vy(4) = 13.5
+    vx(5) = 28: vy(5) = 8
+    vx(6) = 27: vy(6) = 19
+
+    dPoly = 1E+09
+    j = 6
+    FOR k = 0 TO 6
+        dPoly = _MIN(dPoly, sdSegment(px, py, vx(j), vy(j), vx(k), vy(k)))
+        IF (vy(k) > py) <> (vy(j) > py) THEN
+            IF px < (vx(j) - vx(k)) * (py - vy(k)) / (vy(j) - vy(k)) + vx(k) THEN inside = NOT inside
+        END IF
+        j = k
+    NEXT
+    IF inside THEN dPoly = -dPoly
+
+    'rounded band, centered at (16, 19.5)
+    qx = ABS(px - 16) - 11.5 + 1
+    qy = ABS(py - 19.5) - 2.5 + 1
+    dBand = SQR(_MAX(qx, 0) ^ 2 + _MAX(qy, 0) ^ 2) + _MIN(_MAX(qx, qy), 0) - 1
+
+    dBall = _MIN(dist(px, py, 4, 7) - 2.2, dist(px, py, 16, 4) - 2.5)
+    dBall = _MIN(dBall, dist(px, py, 28, 7) - 2.2)
+
+    crownShape! = _MIN(_MIN(dPoly, dBand), dBall)
+END FUNCTION
+
+FUNCTION crownBallLight! (px AS SINGLE, py AS SINGLE)
+    'how close (px, py) is to the specular spot of the nearest tip ball (1 = right on it)
+    DIM d AS SINGLE
+
+    d = _MIN(dist(px, py, 3.3, 6.2), dist(px, py, 15.2, 3.1))
+    d = _MIN(d, dist(px, py, 27.3, 6.2))
+    crownBallLight! = 1 - clampf(d / 2.2, 0, 1)
+END FUNCTION
+
+SUB generateArrowIcon
+    'antialiased tutorial arrow pointing down, with a soft glow baked in; one copy per fade level
+    'the tip sits at (26, 57.5)
+    DIM px AS INTEGER, py AS INTEGER, prevDest AS LONG, k AS INTEGER
+    DIM d AS SINGLE, qx AS SINGLE, qy AS SINGLE, dShaft AS SINGLE, dHead AS SINGLE, dTri AS SINGLE
+    DIM r AS SINGLE, g AS SINGLE, b AS SINGLE, a AS SINGLE
+    DIM t AS SINGLE, f AS SINGLE, cover AS SINGLE, sheen AS SINGLE
+    DIM fr AS SINGLE, fg AS SINGLE, fb AS SINGLE
+    DIM inside AS _BYTE
+
+    prevDest = _DEST
+    FOR k = 0 TO UBOUND(arrowIcon)
+        arrowIcon(k) = _NEWIMAGE(52, 70, 32)
+    NEXT
+    FOR py = 0 TO 69
+        FOR px = 0 TO 51
+            'shaft: rounded box from y = 10 to 40
+            qx = ABS(px - 26) - 6 + 3
+            qy = ABS(py - 25) - 15 + 3
+            dShaft = SQR(_MAX(qx, 0) ^ 2 + _MAX(qy, 0) ^ 2) + _MIN(_MAX(qx, qy), 0) - 3
+
+            'head: triangle with rounded corners
+            dTri = _MIN(sdSegment(px, py, 10, 36, 42, 36), sdSegment(px, py, 42, 36, 26, 56))
+            dTri = _MIN(dTri, sdSegment(px, py, 26, 56, 10, 36))
+            inside = py > 36 AND ABS(px - 26) < (56 - py) * 16 / 20
+            IF inside THEN dTri = -dTri
+            dHead = dTri - 1.5
+            d = _MIN(dShaft, dHead)
+
+            r = 0: g = 0: b = 0: a = 0
+            IF d > 0 THEN blendOver r, g, b, a, 255, 230, 80, .4 * EXP(-d / 3.5)
+            blendOver r, g, b, a, 70, 45, 0, clampf(2 - d, 0, 1) * .9
+
+            cover = clampf(.5 - d, 0, 1)
+            IF cover > 0 THEN
+                t = clampf((py - 10) / 48, 0, 1)
+                fr = 255: fg = lerp(255, 195, t): fb = lerp(175, 30, t)
+                'rounded look: lit from the upper left, darker towards the rim
+                sheen = clampf((26 - px) / 10, 0, 1) * .25 * clampf(-d / 2, 0, 1)
+                f = 1 - .25 * clampf(1 + d / 2.5, 0, 1)
+                IF dShaft < 0 AND px >= 22 AND px <= 23 AND py > 13 AND py < 36 THEN sheen = sheen + .45
+                fr = clampf(fr * f + 255 * sheen, 0, 255)
+                fg = clampf(fg * f + 255 * sheen, 0, 255)
+                fb = clampf(fb * f + 255 * sheen, 0, 255)
+                blendOver r, g, b, a, fr, fg, fb, cover
+            END IF
+
+            IF a > 0 THEN
+                FOR k = 1 TO UBOUND(arrowIcon)
+                    _DEST arrowIcon(k)
+                    _DONTBLEND
+                    PSET (px, py), _RGBA32(r, g, b, a * 255 * k / UBOUND(arrowIcon))
+                NEXT
+            END IF
+        NEXT
+    NEXT
+    FOR k = 0 TO UBOUND(arrowIcon)
+        _DEST arrowIcon(k)
+        _BLEND
+    NEXT
+    _DEST prevDest
+END SUB
+
+FUNCTION sdSegment! (px AS SINGLE, py AS SINGLE, ax AS SINGLE, ay AS SINGLE, bx AS SINGLE, by AS SINGLE)
+    'distance from (px, py) to the segment a-b
+    DIM h AS SINGLE, dx AS SINGLE, dy AS SINGLE
+
+    dx = bx - ax
+    dy = by - ay
+    h = clampf(((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy), 0, 1)
+    sdSegment! = dist(px, py, ax + dx * h, ay + dy * h)
+END FUNCTION
+
+SUB blendOver (r AS SINGLE, g AS SINGLE, b AS SINGLE, a AS SINGLE, sr AS SINGLE, sg AS SINGLE, sb AS SINGLE, sa AS SINGLE)
+    'composite color (sr, sg, sb) with alpha sa (0-1) over the accumulated (r, g, b, a)
+    DIM na AS SINGLE
+
+    IF sa <= 0 THEN EXIT SUB
+    na = sa + a * (1 - sa)
+    r = (sr * sa + r * a * (1 - sa)) / na
+    g = (sg * sa + g * a * (1 - sa)) / na
+    b = (sb * sa + b * a * (1 - sa)) / na
+    a = na
 END SUB
 
 SUB generateBG
@@ -2203,7 +2365,16 @@ SUB drawHUD
     roundRectFill 15, 15, 200, 50, 8, _RGBA32(255, 215, 0, 38), _RGBA32(184, 134, 11, 26)
     roundRectLine 15, 15, 200, 50, 8, _RGBA32(255, 215, 0, 102)
     roundRectLine 16, 16, 198, 48, 7, _RGBA32(255, 215, 0, 102)
-    _PUTIMAGE (22, 33), crownIcon
+    _PUTIMAGE (19, 27), crownIcon
+
+    'every few seconds a glint twinkles on the crown's center jewel
+    tt = t - INT(t / 4) * 4
+    IF tt < .6 THEN
+        pulse = SIN(tt / .6 * _PI)
+        thickLine 34 - 6 * pulse, 30, 36 + 6 * pulse, 30, 1, _RGBA32(255, 255, 230, 220 * pulse)
+        thickLine 35, 29 - 6 * pulse, 35, 31 + 6 * pulse, 1, _RGBA32(255, 255, 230, 220 * pulse)
+        CircleFill 35, 30, 1, _RGBA32(255, 255, 255, 255 * pulse)
+    END IF
 
     _FONT 8
     COLOR _RGBA32(255, 215, 0, 180)
@@ -2246,6 +2417,7 @@ END SUB
 
 SUB drawTutorial
     DIM i AS INTEGER, target AS INTEGER, ax AS SINGLE, ay AS SINGLE, a AS SINGLE
+    DIM bounce AS SINGLE, s AS SINGLE
 
     'fades in when it is due and out as soon as the player starts dragging
     IF showTutorial AND gameOver = false THEN
@@ -2261,15 +2433,16 @@ SUB drawTutorial
     IF target = 0 THEN EXIT SUB
 
     'bouncing arrow pointing at the spawn area
+    'it hops towards the rings and pops in/out with a little overshoot
     a = easeOutCubic(tutorialFade)
+    bounce = ABS(SIN(clock * 3.5))
     ax = peg(target).x
-    ay = peg(target).y - 80 + SIN(clock / .5) * 10 - (1 - a) * 15
-    thickLine ax, ay, ax, ay + 30, 10, _RGBA32(255, 255, 100, 50 * a)
-    thickLine ax, ay, ax, ay + 30, 4, _RGBA32(255, 255, 100, 230 * a)
-    fillTriangle ax, ay + 30, ax - 10, ay + 15, ax + 10, ay + 15, _RGBA32(255, 255, 100, 230 * a)
+    ay = peg(target).y - 48 - bounce * 12 - (1 - a) * 15 'tip of the arrow
+    s = .8 * easeOutBack(tutorialFade) * (1 + .05 * (1 - bounce))
+    IF s > .01 THEN putScaled arrowIcon(_CEIL(tutorialFade * UBOUND(arrowIcon))), ax, ay, -26, -57.5, s
 
-    outlinedText "Drag these rings", ax, ay - 30, a
-    outlinedText "to the board", ax, ay - 10, a
+    outlinedText "Drag these rings", ax, ay - 74, a
+    outlinedText "to the board", ax, ay - 54, a
 END SUB
 
 SUB outlinedText (text$, cx AS SINGLE, cy AS SINGLE, alpha AS SINGLE)
