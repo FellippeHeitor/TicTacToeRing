@@ -10,8 +10,11 @@ OPTION _EXPLICIT
 'Differences from the QB64 version:
 '- the game state and a local copy of the high scores are kept in the browser's localStorage
 '- the online scoreboard uses the QBJS leaderboard API (GXS) instead of raw TCP connections
+'- sounds are loaded from the project's assets folder when present (e.g. when run
+'  from a zipped QBJS project), otherwise straight from the GitHub repository
 
 CONST True = -1, False = 0 'capitalized: QBJS emits "const true" otherwise, which is invalid JavaScript
+CONST ASSETS_URL = "https://raw.githubusercontent.com/FellippeHeitor/TicTacToeRing/master/"
 
 CONST MODE_NORMAL = 0
 CONST MODE_EASIER = 1
@@ -266,17 +269,17 @@ setPegs 'saves made by older versions stored the 600x600 layout
 'load sounds
 DIM loadStart AS DOUBLE
 loadStart = clock
-selectSound = _SNDOPEN("assets/sounds/select.ogg")
-wooshSound = _SNDOPEN("assets/sounds/woosh.ogg")
-woodblock = _SNDOPEN("assets/sounds/woodblock.wav")
-electricSound = _SNDOPEN("assets/sounds/fridge-buzz-loop-39612.mp3")
-track(1) = _SNDOPEN("assets/music/track1.ogg")
+selectSound = loadSound("assets/sounds/select.ogg")
+wooshSound = loadSound("assets/sounds/woosh.ogg")
+woodblock = loadSound("assets/sounds/woodblock.wav")
+electricSound = loadSound("assets/sounds/fridge-buzz-loop-39612.mp3")
+track(1) = loadSound("assets/music/track1.ogg")
 
 DIM i AS INTEGER, a$
 RESTORE comboSoundFiles
 FOR i = 1 TO 8
     READ a$
-    comboSound(i) = _SNDOPEN("assets/sounds/" + a$)
+    comboSound(i) = loadSound("assets/sounds/" + a$)
 NEXT
 
 comboSoundFiles:
@@ -2602,6 +2605,15 @@ SUB loadGame
         level = 0
     END IF
 END SUB
+
+FUNCTION loadSound& (file$)
+    'use the project's own assets when available, or fetch them from the GitHub repository
+    IF _FILEEXISTS(file$) THEN
+        loadSound& = _SNDOPEN(file$)
+    ELSE
+        loadSound& = _SNDOPEN(ASSETS_URL + file$)
+    END IF
+END FUNCTION
 
 FUNCTION numStr$ (v AS DOUBLE)
     numStr$ = _TRIM$(STR$(v))
