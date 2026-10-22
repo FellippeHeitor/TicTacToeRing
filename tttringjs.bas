@@ -33,7 +33,7 @@ CONST MAX_MATCHES = 60
 'online scoreboard (https://gxapi.boxgaming.co); an empty id keeps that mode's scores local only
 CONST LEADERBOARD_NORMAL = "3d9ed3b6-1dcf-4a56-a5bc-6e6e845addc1"
 CONST LEADERBOARD_EASIER = "31a36c93-eefb-4346-aa6f-18bd4ebd22a0"
-DIM SHARED maxHighScores AS INTEGER
+DIM SHARED maxHighScores AS INTEGER, boardOnline AS _BYTE
 maxHighScores = 10
 
 
@@ -197,7 +197,7 @@ DIM SHARED level AS _UNSIGNED LONG, maxColors AS INTEGER
 DIM SHARED animation(0 TO 8) AS gameObject, multiplier AS INTEGER, totalMatches AS INTEGER
 DIM SHARED gameOver AS _BYTE, gameOverDone AS _BYTE, gameOverReason AS INTEGER
 DIM SHARED gameOverStart AS DOUBLE, exploded AS _BYTE
-DIM SHARED pauseGame AS _BYTE, enterSettings AS _BYTE, userQuit AS _BYTE, keyb AS LONG
+DIM SHARED pauseGame AS _BYTE, enterSettings AS _BYTE, enterScores AS _BYTE, userQuit AS _BYTE, keyb AS LONG
 DIM SHARED dragging AS INTEGER, mouseDown AS _BYTE
 DIM SHARED returnAnim(10 TO 12) AS gameObject
 DIM SHARED showTutorial AS _BYTE, tutorialTime AS SINGLE
@@ -408,7 +408,9 @@ DO
                             applyMusicVolume
                             addParticles _MOUSEX, _MOUSEY, 30, _RGB32(255)
                             addParticles _MOUSEX, _MOUSEY, 30, _RGB32(67, 172, 183)
-                        CASE 3 'quit
+                        CASE 3 'leaderboards
+                            enterScores = true
+                        CASE 4 'quit
                             startGameOver GAME_OVER_QUIT
                     END SELECT
                 ELSE
@@ -499,6 +501,13 @@ DO
                 modeChanged = true 'QBJS has no GOTO; restart from the outer loop
                 EXIT DO
             END IF
+        END IF
+
+        IF enterScores THEN
+            addParticles _MOUSEX, _MOUSEY, 30, _RGB32(255)
+            addParticles _MOUSEX, _MOUSEY, 30, _RGB32(67, 172, 183)
+            scoresScreen
+            enterScores = false
         END IF
 
         'limit fps
@@ -598,7 +607,7 @@ SUB generateRingImages
                 e = 0
                 IF d < innerR THEN e = innerR - d
                 IF d > outerR THEN e = d - outerR
-                IF e < 4 THEN PSET (px, py), _RGBA32(0, 0, 0, 77 * (1 - e / 4))
+                IF e < 4 AND 77 * (1 - e / 4) >= 1 THEN PSET (px, py), _RGBA32(0, 0, 0, 77 * (1 - e / 4))
             NEXT
         NEXT
         '_BLEND (not supported in QBJS)
@@ -655,7 +664,7 @@ SUB generatePegImage
             t = clampf(dist(px, py, 7, 7) / 5, 0, 1)
             IF t < .7 THEN v = lerp(255, 224, t / .7) ELSE v = lerp(224, 160, (t - .7) / .3)
             a = 255 * cover + sa * (1 - cover)
-            IF a > 0 THEN
+            IF a >= 1 THEN
                 v = v * 255 * cover / a
                 PSET (px, py), _RGBA32(v, v, v, a)
             END IF
@@ -730,7 +739,7 @@ SUB generateCrownIcon
             NEXT
 
             r = blendR: g = blendG: b = blendB: a = blendA
-            IF a > 0 THEN PSET (px, py), _RGBA32(r, g, b, a * 255)
+            IF a * 255 >= 1 THEN PSET (px, py), _RGBA32(r, g, b, a * 255)
         NEXT
     NEXT
     '_BLEND (not supported in QBJS)
@@ -831,7 +840,7 @@ SUB generateArrowIcon
             END IF
 
             r = blendR: g = blendG: b = blendB: a = blendA
-            IF a > 0 THEN
+            IF a * 255 >= 1 THEN
                 FOR k = 1 TO UBOUND(arrowIcon)
                     _DEST arrowIcon(k)
                     '_DONTBLEND (not supported in QBJS)
@@ -1201,7 +1210,7 @@ SUB doIntro
         LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGBA32(255, 255, 255, clampf(map(t, 0, .7, 255, 0), 0, 255)), BF
         IF banged THEN LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGBA32(255, 255, 255, clampf(map(t, INTRO_BANG, INTRO_BANG + .35, 200, 0), 0, 255)), BF 'bang flash
         LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGBA32(255, 255, 255, clampf(map(t, 4, 5, 0, 255), 0, 255)), BF
-        LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGBA32(0, 0, 0, clampf(map(t, 5, 6, 0, 255), 0, 255)), BF
+        IF t > 5 THEN LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGBA32(0, 0, 0, clampf(map(t, 5, 6, 0, 255), 0, 255)), BF 'QBJS draws alpha 0 black as solid black
 
         WHILE _MOUSEINPUT: WEND
         _DISPLAY
@@ -1529,7 +1538,7 @@ SUB startGameOver (reason AS INTEGER)
     matchCount = 0
     fadingOut = false
     IF sfxVolume > 0 THEN
-        electricVolume = sfxVolume * .5
+        electricVolume = clampf(sfxVolume * 1.2, 0, 1)
         electricTarget = electricVolume
     END IF
 END SUB
@@ -2004,7 +2013,7 @@ SUB updateElectric
         matchTarget = found
 
         d = dist(_MOUSEX, _MOUSEY, peg(found).x, peg(found).y)
-        IF (clampf(1 - d / 300, 0, 1) ^ 2) > .3 AND sfxVolume > 0 THEN electricTarget = sfxVolume * .3
+        IF (clampf(1 - d / 300, 0, 1) ^ 2) > .3 AND sfxVolume > 0 THEN electricTarget = clampf(sfxVolume * .9, 0, 1)
     ELSE
         IF prevCount > 0 AND fadingOut = false THEN
             fadingOut = true
@@ -2019,7 +2028,7 @@ SUB updateElectric
         electricTarget = 0
     END IF
 
-    IF gameOver AND exploded = false THEN electricTarget = sfxVolume * .5
+    IF gameOver AND exploded = false THEN electricTarget = clampf(sfxVolume * 1.2, 0, 1)
 END SUB
 
 SUB updateElectricSound
@@ -2460,12 +2469,14 @@ SUB outlinedText (text$, cx AS SINGLE, cy AS SINGLE, alpha AS SINGLE)
 
     x = cx - _PRINTWIDTH(text$) / 2
     y = cy - _FONTHEIGHT / 2
-    COLOR _RGBA32(0, 0, 0, 200 * alpha)
-    FOR oy = -2 TO 2 STEP 2
-        FOR ox = -2 TO 2 STEP 2
-            IF ox <> 0 OR oy <> 0 THEN _PRINTSTRING (x + ox, y + oy), text$
+    IF 200 * alpha >= 1 THEN
+        COLOR _RGBA32(0, 0, 0, 200 * alpha)
+        FOR oy = -2 TO 2 STEP 2
+            FOR ox = -2 TO 2 STEP 2
+                IF ox <> 0 OR oy <> 0 THEN _PRINTSTRING (x + ox, y + oy), text$
+            NEXT
         NEXT
-    NEXT
+    END IF
     COLOR _RGBA32(255, 255, 255, 255 * alpha)
     _PRINTSTRING (x, y), text$
 END SUB
@@ -2475,7 +2486,7 @@ SUB drawPauseOverlay (fade AS SINGLE)
 
     a = easeOutCubic(fade)
     s = .9 + .1 * a
-    LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGBA32(0, 0, 0, 153 * a), BF
+    IF 153 * a >= 1 THEN LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGBA32(0, 0, 0, 153 * a), BF
     drawScaledText "PAUSED", _WIDTH / 2, _HEIGHT / 2 - 62 + fontHeightLarge(4) / 2, 4, s, _RGBA32(255, 255, 255, 255 * a), _RGBA32(255, 255, 255, 50 * a), 0
     drawScaledText "Click to continue", _WIDTH / 2, _HEIGHT / 2 + 30, 1, 1.5 * s, _RGBA32(255, 255, 255, 255 * a), _RGBA32(255, 255, 255, 60 * a), 0
 END SUB
@@ -3019,7 +3030,11 @@ SUB updateScore
 END SUB
 
 SUB playSfx (handle AS LONG, baseVolume AS SINGLE)
-    IF handle > 0 AND sfxVolume > 0 THEN _SNDPLAYCOPY handle, baseVolume * sfxVolume
+    IF handle > 0 AND sfxVolume > 0 THEN
+        'QBJS ignores _SNDPLAYCOPY's volume; copies take the volume of the original instead
+        _SNDVOL handle, clampf(baseVolume * sfxVolume, 0, 1)
+        _SNDPLAYCOPY handle, baseVolume * sfxVolume
+    END IF
 END SUB
 
 SUB applyMusicVolume
@@ -3383,6 +3398,7 @@ SUB endScreen
     DIM highScore(maxHighScores) AS newHighScore, totalHS AS INTEGER
     DIM fireworksX AS INTEGER, fireworksY AS INTEGER, shootFireworks AS INTEGER
     DIM tableX AS INTEGER, mx AS INTEGER, my AS INTEGER, prevbt AS INTEGER, startX AS INTEGER
+    DIM tableBg AS LONG, oldBoard$, best AS _UNSIGNED LONG
 
     IF gameOver OR keyb = -27 THEN
         'flash and screenshot
@@ -3445,6 +3461,8 @@ SUB endScreen
             saveGame
 
             tableX = _WIDTH / 2 - 88
+            oldBoard$ = board$
+            tableBg = _COPYIMAGE(_DISPLAY) 'to redraw the table once the server has the new score
             COLOR _RGB32(255)
             IF score > 0 AND (totalHS < maxHighScores OR (totalHS > 0 AND score > highScore(totalHS).score)) THEN
                 _KEYCLEAR
@@ -3540,27 +3558,38 @@ SUB endScreen
                 highScore(insertAt).player = temp$
                 _KEYCLEAR
 
-                board$ = ""
-                FOR i = 1 TO totalHS
-                    'build the new score line for upload
-                    board$ = board$ + CHR$(34) + RTRIM$(highScore(i).player) + CHR$(34) + "," + LTRIM$(STR$(highScore(i).score))
-                    IF i < totalHS THEN board$ = board$ + ","
-                NEXT
-                Storage.Set filename$, board$
-
-                screenshot2 = _COPYIMAGE(_DISPLAY)
+                IF LEN(_TRIM$(temp$)) = 0 THEN temp$ = "PLAYER"
 
                 centerText 424, "Updating scoreboard..."
                 _DISPLAY
                 uploadScore temp$, score
-                _PUTIMAGE (0, 0), screenshot2
-                _FREEIMAGE screenshot2
+
+                'the leaderboard keeps one entry per player (their best score), so show
+                'what it holds now instead of the table built above
+                board$ = downloadBoard
+                IF boardOnline = false THEN board$ = mergeScore$(oldBoard$, temp$, score)
+                Storage.Set filename$, board$
+
+                _PUTIMAGE (0, 0), tableBg
+                best = 0
+                FOR i = 1 TO csvCount(board$) \ 2
+                    IF UCASE$(csvField$(board$, i * 2 - 1)) = UCASE$(temp$) THEN best = VAL(csvField$(board$, i * 2)): EXIT FOR
+                NEXT
+                IF best > score THEN
+                    COLOR _RGB32(255, 215, 0)
+                    centerText 200, temp$ + "'s best score of" + STR$(best) + " still stands!"
+                ELSEIF best = score THEN
+                    COLOR _RGB32(255)
+                    centerText 200, "You made it to the scoreboard!"
+                END IF
+                drawHighScoreTable board$, tableX, temp$
             ELSE
                 centerText 232, "******** HIGH  SCORES ********"
                 FOR i = 1 TO totalHS
                     printHighScore tableX, 248 + i * 16, highScore(i).player, highScore(i).score
                 NEXT
             END IF
+            _FREEIMAGE tableBg
         END IF
 
         screenshot2 = _COPYIMAGE(_DISPLAY)
@@ -3648,7 +3677,16 @@ SUB endScreen
         LOOP UNTIL keyb = -13 OR keyb = -27 OR keyb = -110 OR keyb = -78 OR keyb = -121 OR keyb = -89 OR userQuit
         mouseDown = false
 
-        IF (gameOver AND (keyb = -110 OR keyb = -78)) OR userQuit THEN SYSTEM
+        IF gameOver AND (keyb = -110 OR keyb = -78) THEN
+            'quit: a browser page can't close itself, so go back to the intro and start over
+            _FREEIMAGE screenshot
+            _FREEIMAGE screenshot2
+            _KEYCLEAR
+            currentButton = 0
+            resetGame
+            doIntro
+            EXIT SUB
+        END IF
 
         IF (gameOver AND (keyb = -13 OR keyb = -121 OR keyb = -89)) OR (gameOver = false AND (keyb = -110 OR keyb = -78)) THEN
             resetGame
@@ -3672,6 +3710,59 @@ SUB endScreen
         currentButton = 0
     END IF
 END SUB
+
+SUB drawHighScoreTable (board$, x AS INTEGER, highlight$)
+    'board$ is "name",score,...; the highlighted player's row is drawn in gold
+    DIM i AS INTEGER, n AS INTEGER, player$
+
+    COLOR _RGB32(255)
+    centerText 232, "******** HIGH  SCORES ********"
+    n = csvCount(board$) \ 2
+    IF n > maxHighScores THEN n = maxHighScores
+    FOR i = 1 TO n
+        player$ = csvField$(board$, i * 2 - 1)
+        IF UCASE$(player$) = UCASE$(highlight$) THEN COLOR _RGB32(255, 215, 0) ELSE COLOR _RGB32(255)
+        printHighScore x, 248 + i * 16, player$, VAL(csvField$(board$, i * 2))
+    NEXT
+    COLOR _RGB32(255)
+END SUB
+
+FUNCTION mergeScore$ (board$, player$, value AS _UNSIGNED LONG)
+    'adds a result the way the online leaderboard does: one entry per player, keeping their best
+    DIM n AS INTEGER, i AS INTEGER, j AS INTEGER, found AS _BYTE, r$, n$, s AS _UNSIGNED LONG
+
+    n = csvCount(board$) \ 2
+    DIM names(1 TO n + 1) AS STRING, scores(1 TO n + 1) AS _UNSIGNED LONG
+    FOR i = 1 TO n
+        names(i) = csvField$(board$, i * 2 - 1)
+        scores(i) = VAL(csvField$(board$, i * 2))
+        IF UCASE$(names(i)) = UCASE$(player$) THEN
+            found = true
+            IF value > scores(i) THEN scores(i) = value
+        END IF
+    NEXT
+    IF found = false THEN
+        n = n + 1
+        names(n) = player$
+        scores(n) = value
+    END IF
+
+    FOR i = 1 TO n - 1
+        FOR j = i + 1 TO n
+            IF scores(j) > scores(i) THEN
+                s = scores(i): scores(i) = scores(j): scores(j) = s
+                n$ = names(i): names(i) = names(j): names(j) = n$
+            END IF
+        NEXT
+    NEXT
+
+    IF n > maxHighScores THEN n = maxHighScores
+    FOR i = 1 TO n
+        r$ = r$ + CHR$(34) + names(i) + CHR$(34) + "," + LTRIM$(STR$(scores(i)))
+        IF i < n THEN r$ = r$ + ","
+    NEXT
+    mergeScore$ = r$
+END FUNCTION
 
 SUB printHighScore (x AS INTEGER, y AS INTEGER, player$, value AS _UNSIGNED LONG)
     DIM v$
@@ -3911,6 +4002,144 @@ SUB settingsScreen
     currentButton = 0
 END SUB
 
+SUB scoresScreen
+    'online leaderboards for both modes, reachable from the game at any time
+    DIM screenshot AS LONG, start AS DOUBLE, a AS SINGLE
+    DIM boards$(1 TO 2), online(1 TO 2) AS _BYTE, title$(1 TO 2), id$, file$
+    DIM m AS INTEGER, i AS INTEGER, n AS INTEGER, cx AS INTEGER, x AS INTEGER, y AS INTEGER, v$
+    DIM done AS _BYTE, down AS _BYTE, prevbt AS INTEGER
+
+    screenshot = _COPYIMAGE(_DISPLAY)
+
+    'dim the game while the scores load
+    start = clock
+    DO
+        a = easeOutCubic(clampf((clock - start) / .3, 0, 1))
+        _PUTIMAGE (0, 0), screenshot
+        LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGBA32(10, 5, 30, 1 + 214 * a), BF
+        transitionFlash clock - start
+        updateParticles
+        _DISPLAY
+        _LIMIT 60
+    LOOP UNTIL clock - start > .35
+    COLOR _RGB32(255)
+    centerText _HEIGHT / 2, "Connecting to server..."
+    _DISPLAY
+
+    title$(1) = "NORMAL"
+    title$(2) = "EASIER"
+    FOR m = 1 TO 2
+        IF m = 1 THEN
+            id$ = LEADERBOARD_NORMAL: file$ = "highscores.dat"
+        ELSE
+            id$ = LEADERBOARD_EASIER: file$ = "highscores_easier.dat"
+        END IF
+        boards$(m) = downloadBoardFrom$(id$)
+        online(m) = boardOnline
+        IF online(m) THEN
+            Storage.Set file$, boards$(m)
+        ELSE
+            boards$(m) = Storage.Get(file$)
+        END IF
+    NEXT
+
+    currentButton = 0
+    totalButtons = 1
+    caption(1) = "Return to game"
+    button(1).w = 200
+    button(1).h = 35
+    button(1).x = (_WIDTH - button(1).w) / 2
+    button(1).y = _HEIGHT - 90
+    button(1).state = 0
+
+    _KEYCLEAR
+    down = _MOUSEBUTTON(1)
+    DO
+        drawBackground
+        LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGBA32(10, 5, 30, 120), BF
+
+        WHILE _MOUSEINPUT: WEND
+        keyb = _KEYHIT
+        checkButtons
+        IF currentButton <> prevbt THEN
+            IF currentButton > 0 THEN playSfx selectSound, .3
+            prevbt = currentButton
+        END IF
+
+        COLOR _RGB32(0)
+        centerLarge 53, "High Scores", 4
+        COLOR _RGB32(255)
+        centerLarge 50, "High Scores", 4
+
+        FOR m = 1 TO 2
+            cx = _WIDTH * (2 * m - 1) / 4
+            IF m - 1 = mode THEN COLOR _RGB32(255, 215, 0) ELSE COLOR _RGB32(150, 200, 255)
+            printLarge cx - printWidthLarge(title$(m), 2) / 2, 150, title$(m), 2
+            IF m - 1 = mode THEN
+                COLOR _RGBA32(255, 215, 0, 180)
+                centerAt cx, 186, "(current mode)"
+            END IF
+            IF online(m) = false THEN
+                COLOR _RGB32(255, 150, 170)
+                centerAt cx, 204, "offline - showing saved scores"
+            END IF
+
+            n = csvCount(boards$(m)) \ 2
+            IF n > maxHighScores THEN n = maxHighScores
+            x = cx - 120
+            IF n = 0 THEN
+                COLOR _RGB32(200, 200, 220)
+                centerAt cx, 250, "No scores yet"
+            END IF
+            FOR i = 1 TO n
+                y = 222 + i * 26
+                IF i = 1 THEN COLOR _RGB32(255, 215, 0) ELSE COLOR _RGB32(255)
+                v$ = LTRIM$(STR$(i)) + "."
+                _PRINTSTRING (x + 24 - _PRINTWIDTH(v$), y), v$
+                _PRINTSTRING (x + 36, y), csvField$(boards$(m), i * 2 - 1)
+                v$ = csvField$(boards$(m), i * 2)
+                _PRINTSTRING (x + 240 - _PRINTWIDTH(v$), y), v$
+            NEXT
+        NEXT
+
+        doButtons
+        updateParticles
+
+        'click anywhere, Enter, Space or Esc to go back
+        IF _MOUSEBUTTON(1) THEN
+            down = true
+        ELSEIF down THEN
+            down = false
+            done = true
+        END IF
+        IF ABS(keyb) = 13 OR ABS(keyb) = 27 OR ABS(keyb) = 32 THEN done = true
+
+        _DISPLAY
+        _LIMIT 60
+    LOOP UNTIL done
+
+    addParticles _MOUSEX, _MOUSEY, 30, _RGB32(255)
+    addParticles _MOUSEX, _MOUSEY, 30, _RGB32(67, 172, 183)
+    start = clock
+    DO
+        a = 1 - easeOutCubic(clampf((clock - start) / .3, 0, 1))
+        _PUTIMAGE (0, 0), screenshot
+        IF a > 0 THEN LINE (0, 0)-(_WIDTH - 1, _HEIGHT - 1), _RGBA32(10, 5, 30, 1 + 214 * a), BF
+        updateParticles
+        _DISPLAY
+        _LIMIT 60
+    LOOP UNTIL clock - start > .3
+
+    _FREEIMAGE screenshot
+    _KEYCLEAR
+    mouseDown = false
+    currentButton = 0
+END SUB
+
+SUB centerAt (cx AS SINGLE, y AS SINGLE, text$)
+    _PRINTSTRING (cx - _PRINTWIDTH(text$) / 2, y), text$
+END SUB
+
 FUNCTION sliderTrackX! (i AS INTEGER)
     sliderTrackX! = button(i).x + 120
 END FUNCTION
@@ -3946,10 +4175,11 @@ END SUB
 SUB createMainScreenButtons
     DIM i AS INTEGER
 
-    totalButtons = 3
+    totalButtons = 4
     caption(1) = "Settings"
     caption(2) = "Pause"
-    caption(3) = "Quit"
+    caption(3) = "Scores"
+    caption(4) = "Quit"
     FOR i = 1 TO totalButtons
         button(i).w = 80
         button(i).h = 35
@@ -4020,18 +4250,23 @@ FUNCTION leaderboardId$
 END FUNCTION
 
 FUNCTION downloadBoard$
-    'top scores from the online leaderboard as "name",score,"name",score,...
-    'returns "" when offline, so the local copy is used instead
-    DIM id$, result AS INTEGER, total AS INTEGER, i AS INTEGER, j AS INTEGER
+    downloadBoard$ = downloadBoardFrom$(leaderboardId$)
+END FUNCTION
+
+FUNCTION downloadBoardFrom$ (id$)
+    'top scores from an online leaderboard as "name",score,"name",score,...
+    'returns "" when offline (boardOnline = false), so the local copy is used instead
+    DIM result AS INTEGER, total AS INTEGER, i AS INTEGER, j AS INTEGER
     DIM board$, n$, s AS _UNSIGNED LONG
 
-    downloadBoard$ = ""
-    id$ = leaderboardId$
+    downloadBoardFrom$ = ""
+    boardOnline = false
     IF LEN(id$) = 0 THEN EXIT FUNCTION
 
     REDIM entries(0) AS OBJECT
     result = GXS.LeaderboardGet(id$, entries())
     IF result <> 200 THEN EXIT FUNCTION
+    boardOnline = true
     total = UBOUND(entries)
     IF total = 0 THEN EXIT FUNCTION
 
@@ -4058,7 +4293,7 @@ FUNCTION downloadBoard$
         board$ = board$ + CHR$(34) + n$ + CHR$(34) + "," + LTRIM$(STR$(scores(i)))
         IF i < total THEN board$ = board$ + ","
     NEXT
-    downloadBoard$ = board$
+    downloadBoardFrom$ = board$
 END FUNCTION
 
 FUNCTION cleanName$ (n$)
