@@ -1,3 +1,6 @@
+Import Storage From "lib/web/storage.bas"
+Import Sys From "lib/lang/system.bas"
+Import GXS From "https://gxapi.boxgaming.co/v0/gxs.bas"
 OPTION _EXPLICIT
 
 'Tic Tac Toe Ring - QBJS (https://qbjs.org) port of tictactoering.bas
@@ -5,35 +8,10 @@ OPTION _EXPLICIT
 'https://github.com/FellippeHeitor/TicTacToeRing
 '
 'Differences from the QB64 version:
-'- sounds are loaded from the project's assets folder when present (e.g. when run
-'  from a zipped QBJS project), otherwise straight from the GitHub repository
-'- the game state and high scores are kept in the browser's localStorage
-'- the online scoreboard is disabled (browsers can't open raw TCP connections)
+'- the game state and a local copy of the high scores are kept in the browser's localStorage
+'- the online scoreboard uses the QBJS leaderboard API (GXS) instead of raw TCP connections
 
 CONST True = -1, False = 0 'capitalized: QBJS emits "const true" otherwise, which is invalid JavaScript
-CONST ASSETS_URL = "https://raw.githubusercontent.com/FellippeHeitor/TicTacToeRing/master/"
-
-'QB64 compatibility fixes for the QBJS runtime
-$If Javascript Then
-    if (!QB.__tttrPatched) {
-        QB.__tttrPatched = true;
-        var rgba = QB.func__RGBA;
-        QB.func__RGBA = function (r, g, b, a) {
-            var c = rgba.call(QB, r, g, b, a);
-            //values up to 255 are taken as palette indexes by QBJS; keep fully transparent colors transparent
-            return (c <= 255) ? c + 256 : c;
-        };
-        //QBJS returns alpha as 0-1; QB64 returns 0-255
-        var alpha32 = QB.func__Alpha32;
-        QB.func__Alpha32 = function (c) { return Math.round(alpha32.call(QB, c) * 255); };
-        //QB64 draws nothing for a negative radius; the browser canvas throws an error
-        var circle = QB.sub_Circle;
-        QB.sub_Circle = function (step, x, y, radius) {
-            if (radius < 0) { return; }
-            return circle.apply(QB, arguments);
-        };
-    }
-$End If
 
 CONST MODE_NORMAL = 0
 CONST MODE_EASIER = 1
@@ -52,14 +30,10 @@ CONST ELECTRIC_FADE_IN = .3
 CONST ELECTRIC_FADE_OUT = .2
 CONST MAX_MATCHES = 60
 
-'online scoreboard code
-DIM SHARED auth AS STRING, host AS STRING, getboardpath AS STRING
-DIM SHARED updateboardpath AS STRING, timelimit AS INTEGER, maxHighScores AS INTEGER
-auth = CHR$(52) + CHR$(50) + CHR$(51) + CHR$(49) + CHR$(52)
-host = CHR$(119) + CHR$(119) + CHR$(119) + CHR$(46) + CHR$(113) + CHR$(98) + CHR$(54) + CHR$(52) + CHR$(46) + CHR$(111) + CHR$(114) + CHR$(103)
-getboardpath = CHR$(47) + CHR$(116) + CHR$(116) + CHR$(116) + CHR$(114) + CHR$(105) + CHR$(110) + CHR$(103) + CHR$(47) + CHR$(103) + CHR$(101) + CHR$(116) + CHR$(98) + CHR$(111) + CHR$(97) + CHR$(114) + CHR$(100) + CHR$(46) + CHR$(112) + CHR$(104) + CHR$(112)
-updateboardpath = CHR$(47) + CHR$(116) + CHR$(116) + CHR$(116) + CHR$(114) + CHR$(105) + CHR$(110) + CHR$(103) + CHR$(47) + CHR$(117) + CHR$(112) + CHR$(100) + CHR$(97) + CHR$(116) + CHR$(101) + CHR$(98) + CHR$(111) + CHR$(97) + CHR$(114) + CHR$(100) + CHR$(46) + CHR$(112) + CHR$(104) + CHR$(112)
-timelimit = 10
+'online scoreboard (https://gxapi.boxgaming.co); an empty id keeps that mode's scores local only
+CONST LEADERBOARD_NORMAL = "3d9ed3b6-1dcf-4a56-a5bc-6e6e845addc1"
+CONST LEADERBOARD_EASIER = "31a36c93-eefb-4346-aa6f-18bd4ebd22a0"
+DIM SHARED maxHighScores AS INTEGER
 maxHighScores = 10
 
 
@@ -292,17 +266,17 @@ setPegs 'saves made by older versions stored the 600x600 layout
 'load sounds
 DIM loadStart AS DOUBLE
 loadStart = clock
-selectSound = loadSound("assets/sounds/select.ogg")
-wooshSound = loadSound("assets/sounds/woosh.ogg")
-woodblock = loadSound("assets/sounds/woodblock.wav")
-electricSound = loadSound("assets/sounds/fridge-buzz-loop-39612.mp3")
-track(1) = loadSound("assets/music/track1.ogg")
+selectSound = _SNDOPEN("assets/sounds/select.ogg")
+wooshSound = _SNDOPEN("assets/sounds/woosh.ogg")
+woodblock = _SNDOPEN("assets/sounds/woodblock.wav")
+electricSound = _SNDOPEN("assets/sounds/fridge-buzz-loop-39612.mp3")
+track(1) = _SNDOPEN("assets/music/track1.ogg")
 
 DIM i AS INTEGER, a$
 RESTORE comboSoundFiles
 FOR i = 1 TO 8
     READ a$
-    comboSound(i) = loadSound("assets/sounds/" + a$)
+    comboSound(i) = _SNDOPEN("assets/sounds/" + a$)
 NEXT
 
 comboSoundFiles:
@@ -340,9 +314,10 @@ DO
     IF mode = 0 THEN filename$ = "highscores.dat"
     IF mode = 1 THEN filename$ = "highscores_easier.dat"
 
-    IF LEN(board$) > 0 THEN storageSet filename$, board$ 'WRITES THAT TO THE FILE
+    'IF LEN(board$) > 0 THEN storageSet filename$, board$ 'WRITES THAT TO THE FILE
+    IF LEN(board$) > 0 THEN Storage.Set filename$, board$ 'WRITES THAT TO THE FILE
 
-    board$ = storageGet$(filename$)
+    board$ = Storage.Get(filename$)
     IF LEN(board$) > 0 THEN
         highscore = 0
         FOR i = 1 TO maxHighScores
@@ -549,11 +524,7 @@ LOOP
 
 FUNCTION clock#
     'seconds since the page loaded (offset so that a zeroed .start is always in the past)
-    DIM t AS DOUBLE
-    $If Javascript Then
-        t = performance.now();
-    $End If
-    clock# = t / 1000 + 1000
+    clock# = Sys.TimeInMillis / 1000 + 1000
 END FUNCTION
 
 SUB setPegs
@@ -1683,7 +1654,8 @@ SUB putScaled (img AS LONG, x AS SINGLE, y AS SINGLE, ox AS SINGLE, oy AS SINGLE
     IF s = 1 THEN
         _PUTIMAGE (x + ox, y + oy), img
     ELSE
-        putImageStep x + ox * s, y + oy * s, _WIDTH(img) * s - 1, _HEIGHT(img) * s - 1, img
+        'putImageStep x + ox * s, y + oy * s, _WIDTH(img) * s - 1, _HEIGHT(img) * s - 1, img
+        _PUTIMAGE (x + ox * s, y + oy * s)-STEP(_WIDTH(img) * s - 1, _HEIGHT(img) * s - 1), img
     END IF
 END SUB
 
@@ -2063,10 +2035,10 @@ SUB updateElectricSound
     END IF
 
     IF electricVolume > 0 THEN
-        IF NOT sndPlaying(electricSound) THEN _SNDLOOP electricSound
+        IF NOT _SNDPLAYING(electricSound) THEN _SNDLOOP electricSound
         _SNDVOL electricSound, electricVolume
     ELSE
-        IF sndPlaying(electricSound) THEN _SNDSTOP electricSound
+        IF _SNDPLAYING(electricSound) THEN _SNDSTOP electricSound
     END IF
 END SUB
 
@@ -2074,7 +2046,7 @@ SUB stopElectricNow
     electricVolume = 0
     electricTarget = 0
     IF electricSound > 0 THEN
-        IF sndPlaying(electricSound) THEN _SNDSTOP electricSound
+        IF _SNDPLAYING(electricSound) THEN _SNDSTOP electricSound
     END IF
 END SUB
 
@@ -2384,7 +2356,8 @@ SUB drawScore (s$, x AS SINGLE, y AS SINGLE, scale AS SINGLE)
     IF ABS(scale - 1) < .005 THEN
         _PUTIMAGE (x - 2, y - 2), img
     ELSE
-        putImageStep x - 2 * scale, y + h / 2 - 2 - h * scale / 2, w * scale - 1, h * scale - 1, img
+        'putImageStep x - 2 * scale, y + h / 2 - 2 - h * scale / 2, w * scale - 1, h * scale - 1, img
+        _PUTIMAGE (x - 2 * scale, y + h / 2 - 2 - h * scale / 2)-STEP(w * scale - 1, h * scale - 1), img
     END IF
     _FREEIMAGE img
 END SUB
@@ -2515,7 +2488,7 @@ SUB applyScreenZoom
     w = _WIDTH * screenZoom
     h = _HEIGHT * screenZoom
     '_DONTBLEND (not supported in QBJS)
-    putImageStep zoomX * (1 - screenZoom), zoomY * (1 - screenZoom), w, h, img 'zoomX, zoomY stay put
+    _PUTIMAGE (zoomX * (1 - screenZoom), zoomY * (1 - screenZoom))-STEP(w, h), img 'zoomX, zoomY stay put
     '_BLEND (not supported in QBJS)
     _FREEIMAGE img
 END SUB
@@ -2546,9 +2519,11 @@ SUB drawScaledText (text$, x AS SINGLE, y AS SINGLE, fontSize AS INTEGER, scale 
     sw = w * scale
     sh = h * scale
     IF align = 0 THEN
-        putImageStep x - sw / 2, y - sh / 2, sw, sh, img
+        'putImageStep x - sw / 2, y - sh / 2, sw, sh, img
+        _PUTIMAGE (x - sw / 2, y - sh / 2)-STEP(sw, sh), img
     ELSE
-        putImageStep x, y - sh / 2, sw, sh, img
+        'putImageStep x, y - sh / 2, sw, sh, img
+        _PUTIMAGE (x, y - sh / 2)-STEP(sw, sh), img
     END IF
     _FREEIMAGE img
 END SUB
@@ -2573,13 +2548,13 @@ SUB saveGame
 
     'save crc
     a$ = a$ + "," + numStr$(crc32(a$))
-    storageSet "tictactoering.dat", a$
+    Storage.Set "tictactoering.dat", a$
 END SUB
 
 SUB loadGame
     DIM i AS INTEGER, j AS INTEGER, a$, n AS INTEGER, s$
 
-    a$ = storageGet$("tictactoering.dat")
+    a$ = Storage.Get("tictactoering.dat")
     n = csvCount(a$)
     IF n < 12 THEN EXIT SUB
     IF csvField$(a$, 1) <> "tttrng2" THEN EXIT SUB
@@ -2587,7 +2562,7 @@ SUB loadGame
     'test crc
     IF numStr$(crc32(LEFT$(a$, _INSTRREV(a$, ",") - 1))) <> csvField$(a$, n) THEN
         'crc failed - data has been tampered with
-        storageSet "tictactoering.dat", ""
+        Storage.Set "tictactoering.dat", ""
         EXIT SUB
     END IF
 
@@ -2615,21 +2590,6 @@ SUB loadGame
         score = 0
         level = 0
     END IF
-END SUB
-
-'localStorage helpers (QBJS)
-FUNCTION storageGet$ (key$)
-    DIM v$
-    $If Javascript Then
-        try { v = localStorage.getItem("tictactoering/" + key) || ""; } catch (e) { v = ""; }
-    $End If
-    storageGet$ = v$
-END FUNCTION
-
-SUB storageSet (key$, value$)
-    $If Javascript Then
-        try { localStorage.setItem("tictactoering/" + key, value); } catch (e) { }
-    $End If
 END SUB
 
 FUNCTION numStr$ (v AS DOUBLE)
@@ -2673,12 +2633,6 @@ FUNCTION replaceAt$ (s$, position AS INTEGER, v$)
     replaceAt$ = LEFT$(s$, position - 1) + v$ + MID$(s$, position + LEN(v$))
 END FUNCTION
 
-SUB putImageStep (x AS SINGLE, y AS SINGLE, w AS SINGLE, h AS SINGLE, img AS LONG)
-    'same as _PUTIMAGE (x, y)-STEP(w, h), img in QB64
-    '(QBJS takes STEP relative to the last drawing position instead of (x, y))
-    _PUTIMAGE (x, y)-(x + w + 1, y + h + 1), img
-END SUB
-
 SUB copyObject (dst AS gameObject, src AS gameObject)
     'dst = src (QBJS assigns user-defined types by reference)
     dst.x = src.x: dst.y = src.y
@@ -2703,41 +2657,6 @@ END FUNCTION
 FUNCTION maxf! (a AS SINGLE, b AS SINGLE)
     IF a > b THEN maxf! = a ELSE maxf! = b
 END FUNCTION
-
-FUNCTION loadSound& (file$)
-    'use the project's own assets when available, or fetch them from the GitHub repository
-    DIM found AS INTEGER
-    $If Javascript Then
-        var vfs = GX.vfs();
-        var node = vfs.getNode(file, GX.vfsCwd());
-        if (node && node.type == vfs.FILE) { found = -1; }
-    $End If
-    IF found THEN
-        loadSound& = _SNDOPEN(file$)
-    ELSE
-        loadSound& = _SNDOPEN(ASSETS_URL + file$)
-    END IF
-END FUNCTION
-
-FUNCTION sndPlaying% (handle AS LONG)
-    DIM playing AS INTEGER
-    $If Javascript Then
-        var snd = GX.getSound(handle);
-        if (snd && !snd.paused && !snd.ended) { playing = -1; }
-    $End If
-    sndPlaying% = playing
-END FUNCTION
-
-SUB sndPlayCopy (handle AS LONG, volume AS SINGLE)
-    $If Javascript Then
-        var snd = GX.getSound(handle);
-        if (snd && !GX.soundMuted()) {
-            var copy = snd.cloneNode();
-            copy.volume = Math.min(Math.max(volume, 0), 1);
-            copy.play().catch(function () { });
-        }
-    $End If
-END SUB
 
 FUNCTION crc32~& (buf AS STRING)
     'adapted from https://rosettacode.org/wiki/CRC-32
@@ -3100,7 +3019,7 @@ SUB updateScore
 END SUB
 
 SUB playSfx (handle AS LONG, baseVolume AS SINGLE)
-    IF handle > 0 AND sfxVolume > 0 THEN sndPlayCopy handle, baseVolume * sfxVolume
+    IF handle > 0 AND sfxVolume > 0 THEN _SNDPLAYCOPY handle, baseVolume * sfxVolume
 END SUB
 
 SUB applyMusicVolume
@@ -3108,12 +3027,12 @@ SUB applyMusicVolume
 
     IF track(1) = 0 THEN EXIT SUB
     IF musicVolume <= 0 THEN
-        IF sndPlaying(track(1)) THEN _SNDSTOP track(1)
+        IF _SNDPLAYING(track(1)) THEN _SNDSTOP track(1)
     ELSE
         v = musicVolume * mainTrackVolume
         IF pauseGame AND v > .05 THEN v = .05
         _SNDVOL track(1), v
-        IF NOT sndPlaying(track(1)) THEN _SNDLOOP track(1)
+        IF NOT _SNDPLAYING(track(1)) THEN _SNDLOOP track(1)
     END IF
 END SUB
 
@@ -3473,7 +3392,8 @@ SUB endScreen
         DO
             s = 1 - .75 * easeOutCubic(clampf((clock - start) / .5, 0, 1))
             drawBackground
-            putImageStep (_WIDTH - _WIDTH * s) / 2, 0, _WIDTH * s, _HEIGHT * s, screenshot
+            'putImageStep (_WIDTH - _WIDTH * s) / 2, 0, _WIDTH * s, _HEIGHT * s, screenshot
+            _PUTIMAGE ((_WIDTH - _WIDTH * s) / 2, 0)-STEP(_WIDTH * s, _HEIGHT * s), screenshot
             transitionFlash clock - start
             updateParticles
             _DISPLAY
@@ -3504,9 +3424,9 @@ SUB endScreen
             IF mode = 0 THEN filename$ = "highscores.dat"
             IF mode = 1 THEN filename$ = "highscores_easier.dat"
 
-            IF LEN(board$) > 0 THEN storageSet filename$, board$ 'WRITES THAT TO THE FILE
+            IF LEN(board$) > 0 THEN Storage.Set filename$, board$ 'WRITES THAT TO THE FILE
 
-            board$ = storageGet$(filename$)
+            board$ = Storage.Get(filename$)
             IF LEN(board$) > 0 THEN
                 FOR i = 1 TO maxHighScores
                     IF i * 2 > csvCount(board$) THEN EXIT FOR
@@ -3626,13 +3546,13 @@ SUB endScreen
                     board$ = board$ + CHR$(34) + RTRIM$(highScore(i).player) + CHR$(34) + "," + LTRIM$(STR$(highScore(i).score))
                     IF i < totalHS THEN board$ = board$ + ","
                 NEXT
-                storageSet filename$, board$
+                Storage.Set filename$, board$
 
                 screenshot2 = _COPYIMAGE(_DISPLAY)
 
                 centerText 424, "Updating scoreboard..."
                 _DISPLAY
-                uploadBoard board$
+                uploadScore temp$, score
                 _PUTIMAGE (0, 0), screenshot2
                 _FREEIMAGE screenshot2
             ELSE
@@ -3738,7 +3658,8 @@ SUB endScreen
             DO
                 s = .25 + .75 * easeOutCubic(clampf((clock - start) / .5, 0, 1))
                 drawBackground
-                putImageStep (_WIDTH - _WIDTH * s) / 2, 0, _WIDTH * s, _HEIGHT * s, screenshot
+                'putImageStep (_WIDTH - _WIDTH * s) / 2, 0, _WIDTH * s, _HEIGHT * s, screenshot
+                _PUTIMAGE ((_WIDTH - _WIDTH * s) / 2, 0)-STEP(_WIDTH * s, _HEIGHT * s), screenshot
                 transitionFlash clock - start
                 _DISPLAY
                 _LIMIT 60
@@ -3781,7 +3702,8 @@ SUB settingsScreen
         sw = _WIDTH * s
         sh = _HEIGHT * s
         drawBackground
-        putImageStep 0, (_HEIGHT - sh) / 2, sw, sh, screenshot
+        'putImageStep 0, (_HEIGHT - sh) / 2, sw, sh, screenshot
+        _PUTIMAGE (0, (_HEIGHT - sh) / 2)-STEP(sw, sh), screenshot
         transitionFlash clock - start
 
         updateParticles
@@ -3827,7 +3749,8 @@ SUB settingsScreen
     mouseDown = false
     DO
         drawBackground
-        putImageStep 0, (_HEIGHT - sh) / 2, sw, sh, screenshot
+        'putImageStep 0, (_HEIGHT - sh) / 2, sw, sh, screenshot
+        _PUTIMAGE (0, (_HEIGHT - sh) / 2)-STEP(sw, sh), screenshot
 
         WHILE _MOUSEINPUT: WEND
         mx = _MOUSEX
@@ -3975,7 +3898,8 @@ SUB settingsScreen
     DO
         s = 1 / 3 + (2 / 3) * easeOutCubic(clampf((clock - start) / .5, 0, 1))
         drawBackground
-        putImageStep 0, (_HEIGHT - _HEIGHT * s) / 2, _WIDTH * s, _HEIGHT * s, screenshot
+        'putImageStep 0, (_HEIGHT - _HEIGHT * s) / 2, _WIDTH * s, _HEIGHT * s, screenshot
+        _PUTIMAGE (0, (_HEIGHT - _HEIGHT * s) / 2)-STEP(_WIDTH * s, _HEIGHT * s), screenshot
         transitionFlash clock - start
         _DISPLAY
         _LIMIT 60
@@ -4091,12 +4015,66 @@ SUB checkButtons
     END IF
 END SUB
 
-FUNCTION downloadBoard$
-    'the online scoreboard used raw TCP connections (_OPENCLIENT), which browsers don't allow;
-    'scores are kept locally instead
-    downloadBoard$ = ""
+FUNCTION leaderboardId$
+    IF mode = MODE_EASIER THEN leaderboardId$ = LEADERBOARD_EASIER ELSE leaderboardId$ = LEADERBOARD_NORMAL
 END FUNCTION
 
-SUB uploadBoard (newboard$)
-    'see downloadBoard$
+FUNCTION downloadBoard$
+    'top scores from the online leaderboard as "name",score,"name",score,...
+    'returns "" when offline, so the local copy is used instead
+    DIM id$, result AS INTEGER, total AS INTEGER, i AS INTEGER, j AS INTEGER
+    DIM board$, n$, s AS _UNSIGNED LONG
+
+    downloadBoard$ = ""
+    id$ = leaderboardId$
+    IF LEN(id$) = 0 THEN EXIT FUNCTION
+
+    REDIM entries(0) AS OBJECT
+    result = GXS.LeaderboardGet(id$, entries())
+    IF result <> 200 THEN EXIT FUNCTION
+    total = UBOUND(entries)
+    IF total = 0 THEN EXIT FUNCTION
+
+    'highest scores first (don't rely on the server's order)
+    DIM names(1 TO total) AS STRING, scores(1 TO total) AS _UNSIGNED LONG
+    FOR i = 1 TO total
+        names(i) = entries(i).name
+        scores(i) = entries(i).score
+    NEXT
+    FOR i = 1 TO total - 1
+        FOR j = i + 1 TO total
+            IF scores(j) > scores(i) THEN
+                s = scores(i): scores(i) = scores(j): scores(j) = s
+                n$ = names(i): names(i) = names(j): names(j) = n$
+            END IF
+        NEXT
+    NEXT
+
+    IF total > maxHighScores THEN total = maxHighScores
+    FOR i = 1 TO total
+        'keep names short and free of the characters the CSV format uses
+        n$ = cleanName$(names(i))
+        IF LEN(n$) = 0 THEN n$ = "PLAYER"
+        board$ = board$ + CHR$(34) + n$ + CHR$(34) + "," + LTRIM$(STR$(scores(i)))
+        IF i < total THEN board$ = board$ + ","
+    NEXT
+    downloadBoard$ = board$
+END FUNCTION
+
+FUNCTION cleanName$ (n$)
+    DIM i AS INTEGER, c$, r$
+    FOR i = 1 TO LEN(n$)
+        c$ = MID$(n$, i, 1)
+        IF c$ <> "," AND c$ <> CHR$(34) THEN r$ = r$ + c$
+    NEXT
+    cleanName$ = LEFT$(_TRIM$(r$), 12)
+END FUNCTION
+
+SUB uploadScore (player$, value AS _UNSIGNED LONG)
+    'adds this result to the online leaderboard (the local copy is saved by the caller)
+    DIM id$, result AS INTEGER
+
+    id$ = leaderboardId$
+    IF LEN(id$) = 0 OR value = 0 THEN EXIT SUB
+    result = GXS.LeaderboardUpdate(id$, value, player$)
 END SUB
